@@ -212,6 +212,7 @@ function normalizeMotionPresets(scene, root, discoveredPresets = []) {
       label: preset.label || preset.name || normalized.label || `Motion ${index + 1}`,
       sourceId: preset.sourceId || null,
       kind: preset.kind || normalized.kind || "vrma",
+      loop: typeof preset.loop === "boolean" ? preset.loop : undefined,
       required: Boolean(preset.required)
     };
   });
@@ -231,6 +232,7 @@ function normalizeMotionPresets(scene, root, discoveredPresets = []) {
         label: preset.label || preset.name || normalized.label || id,
         sourceId: preset.sourceId || "local-motion-folder",
         kind: preset.kind || normalized.kind || "vrma",
+        loop: typeof preset.loop === "boolean" ? preset.loop : undefined,
         required: false
       };
     });

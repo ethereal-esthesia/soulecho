@@ -1,5 +1,6 @@
 import { createReadStream } from "node:fs";
 import { access, mkdir, readdir, stat, writeFile } from "node:fs/promises";
+import { Readable } from "node:stream";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { defineConfig } from "vite";
@@ -12,11 +13,22 @@ const MOTION_EXTENSIONS = new Set([".vrma"]);
 const OLLAMA_URL = process.env.OLLAMA_URL || "http://127.0.0.1:11434";
 const DEFAULT_OLLAMA_MODEL = process.env.OLLAMA_MODEL || "llama3.2:3b";
 const OLLAMA_CHAT_TIMEOUT_MS = Number(process.env.OLLAMA_CHAT_TIMEOUT_MS || 120000);
+const ANIMAVISAGE_URL = (process.env.ANIMAVISAGE_URL || "http://127.0.0.1:8766")
+  .replace(/\/+$/, "");
+const ANIMAVISAGE_FOLDER = (process.env.ANIMAVISAGE_FOLDER || "").trim();
+const ANIMAVISAGE_REQUEST_TIMEOUT_MS = Number(
+  process.env.ANIMAVISAGE_REQUEST_TIMEOUT_MS || 10000
+);
 const DEMO_PROFILE_PATH = "public/demo-profile.json";
 const DEMO_CONFIG_DIR = "public/demo-configs";
 const DEFAULT_DEMO_CONFIGURATION = "default";
 const PROJECT_ROOT = path.dirname(fileURLToPath(import.meta.url));
 const LOCAL_ASSET_URL_PREFIX = `/${LOCAL_ASSET_ROOT}/`;
+const SOULECHO_BASE_NAME = String(process.env.SOULECHO_BASE_PATH || "")
+  .replace(/^\/+|\/+$/g, "");
+const SOULECHO_BASE_PATH = SOULECHO_BASE_NAME
+  ? `/${SOULECHO_BASE_NAME}/`
+  : "/";
 
 const CONTENT_TYPES = new Map([
   [".bmp", "image/bmp"],
@@ -66,6 +78,12 @@ function getRequestPathname(request) {
 
 function isExactRequestPath(request, pathname) {
   return getRequestPathname(request) === pathname;
+}
+
+function serviceRoute(pathname) {
+  return SOULECHO_BASE_PATH === "/"
+    ? pathname
+    : `${SOULECHO_BASE_PATH.slice(0, -1)}${pathname}`;
 }
 
 function getContentType(filePath) {
@@ -300,7 +318,185 @@ function readJsonBody(request) {
 function sendJson(response, statusCode, payload) {
   response.statusCode = statusCode;
   response.setHeader("Content-Type", "application/json");
+  response.setHeader("Cache-Control", "no-store");
   response.end(JSON.stringify(payload));
+}
+
+function getServiceErrorMessage(error, fallback) {
+  if (error?.name === "AbortError") {
+    return `${fallback} timed out`;
+  }
+  const message = error instanceof Error ? error.message : String(error);
+  if (/fetch failed|ECONNREFUSED|ENOTFOUND/i.test(message)) {
+    return `${fallback} is not running at ${ANIMAVISAGE_URL}`;
+  }
+  return message || `${fallback} request failed`;
+}
+
+async function fetchAnimaVisage(pathname, options = {}, timeoutMs = ANIMAVISAGE_REQUEST_TIMEOUT_MS) {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    return await fetch(`${ANIMAVISAGE_URL}${pathname}`, {
+      ...options,
+      signal: controller.signal
+    });
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+async function getAnimaVisageFolder() {
+  if (ANIMAVISAGE_FOLDER) {
+    return ANIMAVISAGE_FOLDER;
+  }
+
+  const response = await fetchAnimaVisage("/api/bootstrap", {
+    headers: {
+      Accept: "application/json"
+    }
+  });
+  const payload = await response.json().catch(() => ({}));
+  if (!response.ok || !payload.active_folder_id) {
+    throw new Error(payload.error || "AnimaVisage did not provide an active folder");
+  }
+  return String(payload.active_folder_id);
+}
+
+function localCompanionVoiceSegment(segment, index, count) {
+  const id = String(segment?.id || "");
+  if (!/^[a-f0-9]{32}$/i.test(id)) {
+    throw new Error("AnimaVisage returned an invalid stream id");
+  }
+
+  return {
+    id,
+    sentence_index: Number(segment.sentence_index ?? index),
+    sentence_count: Number(segment.sentence_count ?? count),
+    text: String(segment.text || ""),
+    status: String(segment.status || "queued"),
+    message: String(segment.message || ""),
+    output_url: `companion-voice/streams/${id}.mp4`,
+    status_url: `companion-voice/streams/${id}/status`
+  };
+}
+
+async function requestCompanionVoice(text) {
+  const folderId = await getAnimaVisageFolder();
+  const response = await fetchAnimaVisage("/api/voice/test", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Accept: "application/json"
+    },
+    body: JSON.stringify({
+      folder_id: folderId,
+      text
+    })
+  });
+  const payload = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    throw new Error(payload.error || `AnimaVisage returned ${response.status}`);
+  }
+
+  const sourceSegments = Array.isArray(payload.segments) ? payload.segments : [];
+  if (sourceSegments.length === 0) {
+    throw new Error("AnimaVisage did not return a voice stream");
+  }
+
+  return {
+    available: true,
+    folder_id: folderId,
+    poster_url: "companion-voice/portrait",
+    sentence_gap_ms: Number(payload.sentence_gap_ms || 0),
+    startup_buffer_seconds: Number(payload.startup_buffer_seconds || 0),
+    segments: sourceSegments.map((segment, index) => (
+      localCompanionVoiceSegment(segment, index, sourceSegments.length)
+    ))
+  };
+}
+
+function getCompanionVoiceUpstreamPath(pathname) {
+  const match = pathname.match(/^\/streams\/([a-f0-9]{32})(\.mp4|\/status)$/i);
+  if (!match) {
+    return "";
+  }
+  return `/api/voice/streams/${match[1]}${match[2]}`;
+}
+
+async function proxyAnimaVisageResponse(request, response, pathname) {
+  let upstreamPath = getCompanionVoiceUpstreamPath(pathname);
+  if (pathname === "/portrait") {
+    const folderId = await getAnimaVisageFolder();
+    upstreamPath = `/assets/folders/${encodeURIComponent(folderId)}/source`;
+  }
+  if (!upstreamPath) {
+    sendJson(response, 404, { error: "Unknown companion voice resource" });
+    return;
+  }
+
+  const controller = new AbortController();
+  const abortUpstream = () => controller.abort();
+  request.once("aborted", abortUpstream);
+
+  try {
+    const upstream = await fetch(`${ANIMAVISAGE_URL}${upstreamPath}`, {
+      headers: {
+        Accept: request.headers.accept || "*/*"
+      },
+      signal: controller.signal
+    });
+
+    response.statusCode = upstream.status;
+    response.setHeader(
+      "Content-Type",
+      upstream.headers.get("content-type") || "application/octet-stream"
+    );
+    response.setHeader("Cache-Control", "no-store");
+    response.setHeader("X-Content-Type-Options", "nosniff");
+    if (!upstream.body) {
+      response.end();
+      return;
+    }
+
+    const stream = Readable.fromWeb(upstream.body);
+    stream.on("error", (error) => {
+      if (error?.name !== "AbortError" && !response.writableEnded) {
+        response.destroy(error);
+      }
+    });
+    stream.pipe(response);
+  } catch (error) {
+    if (error?.name === "AbortError" && response.destroyed) {
+      return;
+    }
+    if (!response.headersSent) {
+      sendJson(response, 502, {
+        error: getServiceErrorMessage(error, "AnimaVisage")
+      });
+    } else if (!response.writableEnded) {
+      response.end();
+    }
+  }
+}
+
+function handleCompanionVoiceProxy(request, response) {
+  if (request.method !== "GET") {
+    sendJson(response, 405, { error: "GET required" });
+    return;
+  }
+
+  proxyAnimaVisageResponse(
+    request,
+    response,
+    getRequestPathname(request)
+  ).catch((error) => {
+    if (!response.headersSent) {
+      sendJson(response, 502, {
+        error: getServiceErrorMessage(error, "AnimaVisage")
+      });
+    }
+  });
 }
 
 function getOllamaErrorMessage(error, model) {
@@ -357,9 +553,25 @@ async function handleOllamaChat(request, response) {
       return;
     }
 
+    const message = payload.message?.content || "";
+    let voice = null;
+    if (body.voice === true && message.trim()) {
+      try {
+        voice = await requestCompanionVoice(message.trim());
+      } catch (error) {
+        voice = {
+          available: false,
+          error: getServiceErrorMessage(error, "AnimaVisage"),
+          poster_url: "companion-voice/portrait",
+          segments: []
+        };
+      }
+    }
+
     sendJson(response, 200, {
       model: payload.model || model,
-      message: payload.message?.content || ""
+      message,
+      voice
     });
   } catch (error) {
     sendJson(response, 503, {
@@ -414,7 +626,7 @@ function localModelPresetPlugin() {
     name: "local-companion-dev-services",
     configureServer(server) {
       server.middlewares.use(setInlineAssetHeaders);
-      server.middlewares.use("/local-model-presets.json", async (_request, response) => {
+      server.middlewares.use(serviceRoute("/local-model-presets.json"), async (_request, response) => {
         try {
           const modelPresets = await discoverModelPresets(server.config.root);
           sendJson(response, 200, { modelPresets });
@@ -425,7 +637,7 @@ function localModelPresetPlugin() {
           });
         }
       });
-      server.middlewares.use("/local-motion-presets.json", async (_request, response) => {
+      server.middlewares.use(serviceRoute("/local-motion-presets.json"), async (_request, response) => {
         try {
           const motionPresets = await discoverMotionPresets(server.config.root);
           sendJson(response, 200, { motionPresets });
@@ -436,9 +648,10 @@ function localModelPresetPlugin() {
           });
         }
       });
-      server.middlewares.use("/ollama-chat", handleOllamaChat);
+      server.middlewares.use(serviceRoute("/ollama-chat"), handleOllamaChat);
+      server.middlewares.use(serviceRoute("/companion-voice"), handleCompanionVoiceProxy);
       server.middlewares.use((request, response, next) => {
-        if (!isExactRequestPath(request, "/demo-profile")) {
+        if (!isExactRequestPath(request, serviceRoute("/demo-profile"))) {
           next();
           return;
         }
@@ -454,7 +667,7 @@ function localModelPresetPlugin() {
           });
         });
       });
-      server.middlewares.use("/local-model-presets.json", async (_request, response) => {
+      server.middlewares.use(serviceRoute("/local-model-presets.json"), async (_request, response) => {
         try {
           const modelPresets = await discoverModelPresets(process.cwd());
           sendJson(response, 200, { modelPresets });
@@ -465,7 +678,7 @@ function localModelPresetPlugin() {
           });
         }
       });
-      server.middlewares.use("/local-motion-presets.json", async (_request, response) => {
+      server.middlewares.use(serviceRoute("/local-motion-presets.json"), async (_request, response) => {
         try {
           const motionPresets = await discoverMotionPresets(process.cwd());
           sendJson(response, 200, { motionPresets });
@@ -476,9 +689,10 @@ function localModelPresetPlugin() {
           });
         }
       });
-      server.middlewares.use("/ollama-chat", handleOllamaChat);
+      server.middlewares.use(serviceRoute("/ollama-chat"), handleOllamaChat);
+      server.middlewares.use(serviceRoute("/companion-voice"), handleCompanionVoiceProxy);
       server.middlewares.use((request, response, next) => {
-        if (!isExactRequestPath(request, "/demo-profile")) {
+        if (!isExactRequestPath(request, serviceRoute("/demo-profile"))) {
           next();
           return;
         }
@@ -489,7 +703,7 @@ function localModelPresetPlugin() {
 }
 
 export default defineConfig({
-  base: process.env.SOULECHO_BASE_PATH || "/",
+  base: SOULECHO_BASE_PATH,
   preview: {
     allowedHosts: [
       "ethereal-esthesia.com",

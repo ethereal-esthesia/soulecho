@@ -32,16 +32,25 @@
       </div>
       <div class="dialogue-stack">
         <p class="dialogue-privacy">Demo chats with the server are stored in your browser.</p>
-        <section class="dialogue-console" aria-label="Companion dialogue">
-          <div class="dialogue-history" id="dialogueHistory" aria-live="polite"></div>
-          <form class="dialogue-form" id="dialogueForm">
-            <input id="dialogueInput" type="text" autocomplete="off" aria-label="Message companion" placeholder="Chat..." />
-            <button class="memory-icon-button" id="viewMemoryButton" type="button" aria-label="View browser memory" title="View memory">
-              <span class="memory-icon" aria-hidden="true"></span>
+        <div class="dialogue-row">
+          <aside class="companion-face" id="companionFace" data-state="idle" aria-label="Speaking companion">
+            <video id="companionFaceVideo" playsinline preload="none" aria-label="Animated companion response"></video>
+            <button class="companion-face-play" id="companionFacePlay" type="button" aria-label="Play companion voice" hidden>
+              <span aria-hidden="true"></span>
             </button>
-            <button class="dialogue-send-button" type="submit">Send</button>
-          </form>
-        </section>
+            <small id="companionFaceStatus" aria-live="polite">Voice ready</small>
+          </aside>
+          <section class="dialogue-console" aria-label="Companion dialogue">
+            <div class="dialogue-history" id="dialogueHistory" aria-live="polite"></div>
+            <form class="dialogue-form" id="dialogueForm">
+              <input id="dialogueInput" type="text" autocomplete="off" aria-label="Message companion" placeholder="Chat..." />
+              <button class="memory-icon-button" id="viewMemoryButton" type="button" aria-label="View browser memory" title="View memory">
+                <span class="memory-icon" aria-hidden="true"></span>
+              </button>
+              <button class="dialogue-send-button" type="submit">Send</button>
+            </form>
+          </section>
+        </div>
       </div>
       <dialog class="memory-dialog" id="memoryDialog" aria-labelledby="memoryDialogTitle">
         <div class="memory-dialog-panel">

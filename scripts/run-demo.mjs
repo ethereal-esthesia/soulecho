@@ -175,6 +175,10 @@ await killPort(port);
 const demoUrl = `http://${host}:${port}/`;
 console.log(`Starting demo preview at ${demoUrl}`);
 const child = spawn(viteCommand(), ["preview", "--host", host, "--port", String(port), "--strictPort"], {
+  env: {
+    ...process.env,
+    SOULECHO_BASE_PATH: basePath
+  },
   stdio: "inherit",
   shell: process.platform === "win32"
 });

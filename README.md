@@ -198,6 +198,29 @@ ollama pull llama3.2:3b
 
 Start Ollama, run the app, and use the dialogue console at the top of the scene.
 
+SoulEcho also asks a local AnimaVisage server to animate and speak each normal
+companion reply. The text response appears immediately, while the small face
+beside the console plays the same buffered fragmented-MP4 stream used by the
+AnimaVisage Studio voice demo. Start AnimaVisage on its default local endpoint:
+
+```bash
+cd ../AnimaVisage
+python3 scripts/expression_studio.py --folder astera-happy --no-open
+```
+
+SoulEcho uses the folder currently selected in AnimaVisage Studio by default.
+Pin a folder or use a different endpoint with:
+
+```bash
+ANIMAVISAGE_URL=http://127.0.0.1:8766 \
+ANIMAVISAGE_FOLDER=astera-happy \
+npm run dev
+```
+
+The browser talks only to SoulEcho. Its backend bridge requests the voice
+playlist, proxies the portrait and growing media streams, and degrades to a
+text-only reply when AnimaVisage is unavailable.
+
 On Debian/Ubuntu Linux, the setup script installs Ollama as a localhost-only
 systemd service and pulls the default model:
 
@@ -217,6 +240,7 @@ Useful overrides:
 OLLAMA_MODEL=llama3.2:3b npm run linux:setup-ollama
 SOULECHO_BASE_PATH=/soulecho/demo/ SOULECHO_PORT=4173 npm run linux:install-demo
 PROFILE_METADATA_EXTRACTION=0 MAX_CONSOLE_MEMORY_LINES=2 npm run linux:install-demo
+ANIMAVISAGE_URL=http://127.0.0.1:8766 ANIMAVISAGE_FOLDER=astera-happy npm run linux:install-demo
 ```
 
 The console supports lightweight local memory:

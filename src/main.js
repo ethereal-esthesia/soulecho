@@ -31,6 +31,10 @@ const dialogueHistory = document.querySelector("#dialogueHistory");
 const dialogueForm = document.querySelector("#dialogueForm");
 const dialogueInput = document.querySelector("#dialogueInput");
 const dialogueSendButton = document.querySelector(".dialogue-send-button");
+const companionFace = document.querySelector("#companionFace");
+const companionFaceVideo = document.querySelector("#companionFaceVideo");
+const companionFacePlay = document.querySelector("#companionFacePlay");
+const companionFaceStatus = document.querySelector("#companionFaceStatus");
 const clearMemoryButton = document.querySelector("#clearMemoryButton");
 const viewMemoryButton = document.querySelector("#viewMemoryButton");
 const loadVeil = document.querySelector("#loadVeil");
@@ -225,6 +229,11 @@ const MOTION_TRANSITION_LINEAR_DECELERATION = 1.4;
 const MOTION_TRANSITION_ANGULAR_MAX_SPEED = THREE.MathUtils.degToRad(150);
 const MOTION_TRANSITION_ANGULAR_ACCELERATION = THREE.MathUtils.degToRad(560);
 const MOTION_TRANSITION_ANGULAR_DECELERATION = THREE.MathUtils.degToRad(560);
+const MOTION_LOOP_POSITION_EPSILON = 0.035;
+const MOTION_LOOP_ROOT_POSITION_EPSILON = 0.08;
+const MOTION_LOOP_ROTATION_EPSILON = THREE.MathUtils.degToRad(3);
+const MOTION_LOOP_SCALE_EPSILON = 0.015;
+const MOTION_LOOP_SCALAR_EPSILON = 0.02;
 const PROCEDURAL_MOTION_OPTIONS = [
   {
     id: IDLE_BREATHE_MOTION_ID,
@@ -308,6 +317,126 @@ const VRM_EXPRESSION_BACKED_RAW_EYE_MORPHS = new Set([
   "LOOKLEFT",
   "LOOKRIGHT"
 ]);
+const SOUL_BONE_PARENT_MAP = {
+  hips: null,
+  spine: "hips",
+  chest: "spine",
+  upperChest: "chest",
+  neck: "upperChest",
+  head: "neck",
+  leftEye: "head",
+  rightEye: "head",
+  jaw: "head",
+  leftUpperLeg: "hips",
+  leftLowerLeg: "leftUpperLeg",
+  leftFoot: "leftLowerLeg",
+  leftToes: "leftFoot",
+  rightUpperLeg: "hips",
+  rightLowerLeg: "rightUpperLeg",
+  rightFoot: "rightLowerLeg",
+  rightToes: "rightFoot",
+  leftShoulder: "upperChest",
+  leftUpperArm: "leftShoulder",
+  leftLowerArm: "leftUpperArm",
+  leftHand: "leftLowerArm",
+  rightShoulder: "upperChest",
+  rightUpperArm: "rightShoulder",
+  rightLowerArm: "rightUpperArm",
+  rightHand: "rightLowerArm",
+  leftThumbMetacarpal: "leftHand",
+  leftThumbProximal: "leftThumbMetacarpal",
+  leftThumbDistal: "leftThumbProximal",
+  leftIndexProximal: "leftHand",
+  leftIndexIntermediate: "leftIndexProximal",
+  leftIndexDistal: "leftIndexIntermediate",
+  leftMiddleProximal: "leftHand",
+  leftMiddleIntermediate: "leftMiddleProximal",
+  leftMiddleDistal: "leftMiddleIntermediate",
+  leftRingProximal: "leftHand",
+  leftRingIntermediate: "leftRingProximal",
+  leftRingDistal: "leftRingIntermediate",
+  leftLittleProximal: "leftHand",
+  leftLittleIntermediate: "leftLittleProximal",
+  leftLittleDistal: "leftLittleIntermediate",
+  rightThumbMetacarpal: "rightHand",
+  rightThumbProximal: "rightThumbMetacarpal",
+  rightThumbDistal: "rightThumbProximal",
+  rightIndexProximal: "rightHand",
+  rightIndexIntermediate: "rightIndexProximal",
+  rightIndexDistal: "rightIndexIntermediate",
+  rightMiddleProximal: "rightHand",
+  rightMiddleIntermediate: "rightMiddleProximal",
+  rightMiddleDistal: "rightMiddleIntermediate",
+  rightRingProximal: "rightHand",
+  rightRingIntermediate: "rightRingProximal",
+  rightRingDistal: "rightRingIntermediate",
+  rightLittleProximal: "rightHand",
+  rightLittleIntermediate: "rightLittleProximal",
+  rightLittleDistal: "rightLittleIntermediate"
+};
+const SOUL_BONE_IDS = Object.keys(SOUL_BONE_PARENT_MAP);
+const SOUL_BONE_ALIASES = {
+  hips: ["hips", "hip", "pelvis", "center", "センター", "下半身"],
+  spine: ["spine", "abdomen", "waist", "上半身"],
+  chest: ["chest", "upper body 2", "上半身2"],
+  upperChest: ["upperchest", "upper chest", "上半身3"],
+  neck: ["neck", "首"],
+  head: ["head", "頭"],
+  leftEye: ["lefteye", "left eye", "左目", "左眼"],
+  rightEye: ["righteye", "right eye", "右目", "右眼"],
+  jaw: ["jaw", "顎", "あご"],
+  leftUpperLeg: ["leftupperleg", "left upper leg", "leftthigh", "left thigh", "左足", "左太もも"],
+  leftLowerLeg: ["leftlowerleg", "left lower leg", "leftshin", "left shin", "左ひざ", "左膝"],
+  leftFoot: ["leftfoot", "left foot", "左足首"],
+  leftToes: ["lefttoes", "left toes", "lefttoe", "左つま先"],
+  rightUpperLeg: ["rightupperleg", "right upper leg", "rightthigh", "right thigh", "右足", "右太もも"],
+  rightLowerLeg: ["rightlowerleg", "right lower leg", "rightshin", "right shin", "右ひざ", "右膝"],
+  rightFoot: ["rightfoot", "right foot", "右足首"],
+  rightToes: ["righttoes", "right toes", "righttoe", "右つま先"],
+  leftShoulder: ["leftshoulder", "left shoulder", "左肩"],
+  leftUpperArm: ["leftupperarm", "left upper arm", "左腕"],
+  leftLowerArm: ["leftlowerarm", "left lower arm", "leftforearm", "left forearm", "左ひじ", "左肘"],
+  leftHand: ["lefthand", "left hand", "左手首"],
+  rightShoulder: ["rightshoulder", "right shoulder", "右肩"],
+  rightUpperArm: ["rightupperarm", "right upper arm", "右腕"],
+  rightLowerArm: ["rightlowerarm", "right lower arm", "rightforearm", "right forearm", "右ひじ", "右肘"],
+  rightHand: ["righthand", "right hand", "右手首"],
+  leftThumbMetacarpal: ["leftthumbmetacarpal", "左親指０", "左親指0"],
+  leftThumbProximal: ["leftthumbproximal", "左親指１", "左親指1"],
+  leftThumbDistal: ["leftthumbdistal", "左親指２", "左親指2"],
+  leftIndexProximal: ["leftindexproximal", "左人指１", "左人指1", "左人差指１", "左人差指1"],
+  leftIndexIntermediate: ["leftindexintermediate", "左人指２", "左人指2", "左人差指２", "左人差指2"],
+  leftIndexDistal: ["leftindexdistal", "左人指３", "左人指3", "左人差指３", "左人差指3"],
+  leftMiddleProximal: ["leftmiddleproximal", "左中指１", "左中指1"],
+  leftMiddleIntermediate: ["leftmiddleintermediate", "左中指２", "左中指2"],
+  leftMiddleDistal: ["leftmiddledistal", "左中指３", "左中指3"],
+  leftRingProximal: ["leftringproximal", "左薬指１", "左薬指1"],
+  leftRingIntermediate: ["leftringintermediate", "左薬指２", "左薬指2"],
+  leftRingDistal: ["leftringdistal", "左薬指３", "左薬指3"],
+  leftLittleProximal: ["leftlittleproximal", "左小指１", "左小指1"],
+  leftLittleIntermediate: ["leftlittleintermediate", "左小指２", "左小指2"],
+  leftLittleDistal: ["leftlittledistal", "左小指３", "左小指3"],
+  rightThumbMetacarpal: ["rightthumbmetacarpal", "右親指０", "右親指0"],
+  rightThumbProximal: ["rightthumbproximal", "右親指１", "右親指1"],
+  rightThumbDistal: ["rightthumbdistal", "右親指２", "右親指2"],
+  rightIndexProximal: ["rightindexproximal", "右人指１", "右人指1", "右人差指１", "右人差指1"],
+  rightIndexIntermediate: ["rightindexintermediate", "右人指２", "右人指2", "右人差指２", "右人差指2"],
+  rightIndexDistal: ["rightindexdistal", "右人指３", "右人指3", "右人差指３", "右人差指3"],
+  rightMiddleProximal: ["rightmiddleproximal", "右中指１", "右中指1"],
+  rightMiddleIntermediate: ["rightmiddleintermediate", "右中指２", "右中指2"],
+  rightMiddleDistal: ["rightmiddledistal", "右中指３", "右中指3"],
+  rightRingProximal: ["rightringproximal", "右薬指１", "右薬指1"],
+  rightRingIntermediate: ["rightringintermediate", "右薬指２", "右薬指2"],
+  rightRingDistal: ["rightringdistal", "右薬指３", "右薬指3"],
+  rightLittleProximal: ["rightlittleproximal", "右小指１", "右小指1"],
+  rightLittleIntermediate: ["rightlittleintermediate", "右小指２", "右小指2"],
+  rightLittleDistal: ["rightlittledistal", "右小指３", "右小指3"]
+};
+const SOUL_BONE_ALIAS_LOOKUP = new Map(
+  Object.entries(SOUL_BONE_ALIASES).flatMap(([boneId, aliases]) => (
+    [boneId, ...aliases].map((alias) => [normalizeBoneAlias(alias), boneId])
+  ))
+);
 
 const blinkController = {
   targets: [],
@@ -339,6 +468,7 @@ const motionController = {
   options: [STILL_MOTION_OPTION],
   mixer: null,
   action: null,
+  finishHandler: null,
   clip: null,
   clipCache: new Map(),
   loadingId: null,
@@ -369,6 +499,12 @@ const speechController = {
   visibleUntil: 0,
   chunks: [],
   chunkIndex: 0
+};
+const companionVoiceController = {
+  requestId: 0,
+  abortController: null,
+  objectUrl: "",
+  resetTimer: 0
 };
 const demoScheduler = {
   timers: [],
@@ -1968,18 +2104,22 @@ function getContinuationGreetingPrompt() {
 }
 
 async function requestContinuationGreeting() {
-  const reply = cleanCompanionReply(await requestOllamaReply(
+  const response = await requestOllamaResponse(
     getContinuationGreetingPrompt(),
     {
       includeSavedMemory: true,
       transcriptLines: PERSISTED_CONTEXT_LINES,
       currentTurnGuidance: "The app just started. Write only Astera's brief continuation greeting using the full prior chat context.",
       appendPrompt: true,
+      voice: true,
       retryCount: 1,
       retryDelayMs: 10000
     }
-  ));
-  return reply || getContinuationGreeting();
+  );
+  return {
+    message: cleanCompanionReply(response.message) || getContinuationGreeting(),
+    voice: response.voice
+  };
 }
 
 async function runSchedulerCommand(command) {
@@ -1991,7 +2131,9 @@ async function runSchedulerCommand(command) {
 
     try {
       addOllamaThinkingNotice();
-      addAssistantDialogueReply(await requestContinuationGreeting());
+      const response = await requestContinuationGreeting();
+      addAssistantDialogueReply(response.message);
+      playCompanionVoice(response.voice);
     } catch (error) {
       console.warn("Continuation greeting failed", error);
       addAssistantDialogueReply(getContinuationGreeting());
@@ -2074,7 +2216,281 @@ function wait(ms) {
   });
 }
 
-async function requestOllamaReply(prompt, options = {}) {
+function setCompanionFaceState(state, status, detail = "") {
+  companionFace.dataset.state = state;
+  companionFaceStatus.textContent = status;
+  companionFace.title = detail || status;
+}
+
+function releaseCompanionFaceMedia() {
+  companionFaceVideo.pause();
+  companionFaceVideo.removeAttribute("src");
+  companionFaceVideo.load();
+  if (companionVoiceController.objectUrl) {
+    URL.revokeObjectURL(companionVoiceController.objectUrl);
+    companionVoiceController.objectUrl = "";
+  }
+}
+
+function cancelCompanionVoice() {
+  companionVoiceController.requestId += 1;
+  companionVoiceController.abortController?.abort();
+  companionVoiceController.abortController = null;
+  window.clearTimeout(companionVoiceController.resetTimer);
+  companionVoiceController.resetTimer = 0;
+  companionFacePlay.hidden = true;
+  releaseCompanionFaceMedia();
+}
+
+function initializeCompanionFace() {
+  companionFaceVideo.poster = appUrl("companion-voice/portrait");
+  companionFaceVideo.load();
+  setCompanionFaceState("idle", "Voice ready");
+}
+
+function companionVoiceCancelledError() {
+  const error = new Error("Companion voice cancelled");
+  error.name = "AbortError";
+  return error;
+}
+
+function waitForMediaSourceOpen(mediaSource, signal) {
+  return new Promise((resolve, reject) => {
+    const handleOpen = () => {
+      cleanup();
+      resolve();
+    };
+    const handleAbort = () => {
+      cleanup();
+      reject(companionVoiceCancelledError());
+    };
+    const cleanup = () => {
+      mediaSource.removeEventListener("sourceopen", handleOpen);
+      signal.removeEventListener("abort", handleAbort);
+    };
+    mediaSource.addEventListener("sourceopen", handleOpen, { once: true });
+    signal.addEventListener("abort", handleAbort, { once: true });
+  });
+}
+
+function appendCompanionMediaChunk(sourceBuffer, chunk, signal) {
+  return new Promise((resolve, reject) => {
+    const handleEnd = () => {
+      cleanup();
+      resolve();
+    };
+    const handleError = () => {
+      cleanup();
+      reject(new Error("Could not buffer the companion voice stream"));
+    };
+    const handleAbort = () => {
+      cleanup();
+      reject(companionVoiceCancelledError());
+    };
+    const cleanup = () => {
+      sourceBuffer.removeEventListener("updateend", handleEnd);
+      sourceBuffer.removeEventListener("error", handleError);
+      signal.removeEventListener("abort", handleAbort);
+    };
+    sourceBuffer.addEventListener("updateend", handleEnd, { once: true });
+    sourceBuffer.addEventListener("error", handleError, { once: true });
+    signal.addEventListener("abort", handleAbort, { once: true });
+    sourceBuffer.appendBuffer(chunk);
+  });
+}
+
+function waitForCompanionVideoEnd(signal) {
+  return new Promise((resolve, reject) => {
+    const handleEnd = () => {
+      cleanup();
+      resolve();
+    };
+    const handleError = () => {
+      cleanup();
+      reject(new Error("Could not play the companion voice stream"));
+    };
+    const handleAbort = () => {
+      cleanup();
+      reject(companionVoiceCancelledError());
+    };
+    const cleanup = () => {
+      companionFaceVideo.removeEventListener("ended", handleEnd);
+      companionFaceVideo.removeEventListener("error", handleError);
+      signal.removeEventListener("abort", handleAbort);
+    };
+    companionFaceVideo.addEventListener("ended", handleEnd, { once: true });
+    companionFaceVideo.addEventListener("error", handleError, { once: true });
+    signal.addEventListener("abort", handleAbort, { once: true });
+  });
+}
+
+async function monitorCompanionVoiceSegment(segment, signal) {
+  while (!signal.aborted) {
+    const response = await fetch(appUrl(segment.status_url), {
+      cache: "no-store",
+      signal
+    });
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      throw new Error(payload.error || `Voice status returned ${response.status}`);
+    }
+    if (payload.status === "complete") {
+      return;
+    }
+    if (payload.status === "failed") {
+      throw new Error(payload.message || "Companion voice render failed");
+    }
+    await wait(400);
+  }
+  throw companionVoiceCancelledError();
+}
+
+function startCompanionFacePlayback(index, count) {
+  companionFaceVideo.play()
+    .then(() => {
+      companionFacePlay.hidden = true;
+      setCompanionFaceState(
+        "playing",
+        count > 1 ? `Speaking ${index + 1}/${count}` : "Speaking"
+      );
+    })
+    .catch(() => {
+      companionFacePlay.hidden = false;
+      setCompanionFaceState("ready", "Tap to hear");
+    });
+}
+
+async function playCompanionVoiceSegment(
+  segment,
+  index,
+  count,
+  startupBufferSeconds,
+  signal
+) {
+  const mime = 'video/mp4; codecs="avc1.64002A, mp4a.40.2"';
+  if (!window.MediaSource || !MediaSource.isTypeSupported(mime)) {
+    throw new Error("This browser cannot play the buffered companion stream");
+  }
+
+  const mediaSource = new MediaSource();
+  const objectUrl = URL.createObjectURL(mediaSource);
+  companionVoiceController.objectUrl = objectUrl;
+  companionFaceVideo.src = objectUrl;
+  companionFaceVideo.load();
+  await waitForMediaSourceOpen(mediaSource, signal);
+  const sourceBuffer = mediaSource.addSourceBuffer(mime);
+  const response = await fetch(appUrl(segment.output_url), {
+    cache: "no-store",
+    signal
+  });
+  if (!response.ok || !response.body) {
+    const payload = await response.json().catch(() => ({}));
+    throw new Error(payload.error || `Voice stream returned ${response.status}`);
+  }
+
+  const ended = waitForCompanionVideoEnd(signal);
+  const reader = response.body.getReader();
+  let playbackStarted = false;
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) {
+      break;
+    }
+    await appendCompanionMediaChunk(sourceBuffer, value, signal);
+    const bufferedSeconds = companionFaceVideo.buffered.length > 0
+      ? companionFaceVideo.buffered.end(companionFaceVideo.buffered.length - 1)
+      : 0;
+    if (!playbackStarted && bufferedSeconds >= startupBufferSeconds) {
+      playbackStarted = true;
+      companionFaceVideo.currentTime = 0;
+      startCompanionFacePlayback(index, count);
+    }
+  }
+
+  if (mediaSource.readyState === "open") {
+    mediaSource.endOfStream();
+  }
+  if (!playbackStarted) {
+    companionFaceVideo.currentTime = 0;
+    startCompanionFacePlayback(index, count);
+  }
+  await ended;
+  URL.revokeObjectURL(objectUrl);
+  if (companionVoiceController.objectUrl === objectUrl) {
+    companionVoiceController.objectUrl = "";
+  }
+}
+
+async function playCompanionVoice(voice) {
+  cancelCompanionVoice();
+  const requestId = companionVoiceController.requestId;
+  if (voice?.poster_url) {
+    companionFaceVideo.poster = appUrl(voice.poster_url);
+  }
+  if (!voice?.available || !Array.isArray(voice.segments) || voice.segments.length === 0) {
+    const detail = voice?.error || "No companion voice stream was returned";
+    setCompanionFaceState("error", "Voice offline", detail);
+    console.warn("Companion voice unavailable", detail);
+    return;
+  }
+
+  const controller = new AbortController();
+  companionVoiceController.abortController = controller;
+  setCompanionFaceState("buffering", "Preparing voice");
+
+  try {
+    for (const [index, segment] of voice.segments.entries()) {
+      if (requestId !== companionVoiceController.requestId) {
+        throw companionVoiceCancelledError();
+      }
+      setCompanionFaceState(
+        "buffering",
+        voice.segments.length > 1
+          ? `Preparing ${index + 1}/${voice.segments.length}`
+          : "Preparing voice"
+      );
+      await Promise.all([
+        monitorCompanionVoiceSegment(segment, controller.signal),
+        playCompanionVoiceSegment(
+          segment,
+          index,
+          voice.segments.length,
+          Number(voice.startup_buffer_seconds || 0),
+          controller.signal
+        )
+      ]);
+      if (index < voice.segments.length - 1 && voice.sentence_gap_ms > 0) {
+        await wait(Number(voice.sentence_gap_ms));
+      }
+    }
+
+    if (requestId !== companionVoiceController.requestId) {
+      return;
+    }
+    setCompanionFaceState("idle", "Voice complete");
+    companionVoiceController.abortController = null;
+    companionVoiceController.resetTimer = window.setTimeout(() => {
+      if (requestId !== companionVoiceController.requestId) {
+        return;
+      }
+      releaseCompanionFaceMedia();
+      setCompanionFaceState("idle", "Voice ready");
+    }, 700);
+  } catch (error) {
+    if (error?.name === "AbortError" || requestId !== companionVoiceController.requestId) {
+      return;
+    }
+    controller.abort();
+    companionVoiceController.abortController = null;
+    companionFacePlay.hidden = true;
+    releaseCompanionFaceMedia();
+    const detail = error instanceof Error ? error.message : "Companion voice failed";
+    setCompanionFaceState("error", "Voice error", detail);
+    console.warn("Companion voice playback failed", error);
+  }
+}
+
+async function requestOllamaResponse(prompt, options = {}) {
   const retryCount = Math.max(0, options.retryCount || 0);
   let lastError;
 
@@ -2091,6 +2507,7 @@ async function requestOllamaReply(prompt, options = {}) {
         },
         body: JSON.stringify({
           model: OLLAMA_MODEL,
+          voice: options.voice === true,
           messages: options.appendPrompt
             ? [
                 ...getOllamaMessages(prompt, options),
@@ -2105,13 +2522,20 @@ async function requestOllamaReply(prompt, options = {}) {
         throw new Error(payload.error || `Ollama returned ${response.status}`);
       }
 
-      return payload.message || "";
+      return {
+        message: payload.message || "",
+        voice: payload.voice || null
+      };
     } catch (error) {
       lastError = error;
     }
   }
 
   throw lastError;
+}
+
+async function requestOllamaReply(prompt, options = {}) {
+  return (await requestOllamaResponse(prompt, options)).message;
 }
 
 async function submitDialoguePrompt(prompt) {
@@ -2142,13 +2566,17 @@ async function submitDialoguePrompt(prompt) {
   await learnProfileFromPrompt(trimmedPrompt);
 
   try {
-    const reply = cleanCompanionReply(await requestOllamaReply(trimmedPrompt));
+    const response = await requestOllamaResponse(trimmedPrompt, {
+      voice: true
+    });
+    const reply = cleanCompanionReply(response.message);
     removeOllamaThinkingNotice();
     if (!reply) {
       addDialogueLine("system", `${OLLAMA_MODEL} returned an empty reply. Try again.`);
       return;
     }
     addAssistantDialogueReply(reply);
+    playCompanionVoice(response.voice);
   } catch (error) {
     removeOllamaThinkingNotice();
     addDialogueLine(
@@ -2412,6 +2840,7 @@ function configureMotionOptions(state) {
       url: preset.url,
       path: preset.path,
       sourceId: preset.sourceId,
+      loop: typeof preset.loop === "boolean" ? preset.loop : undefined,
       ok: true
     }));
 
@@ -2446,8 +2875,7 @@ function populateMotionModeSelect() {
   });
 
   motionModeSelect.value = selectedMotion;
-  motionModeSelect.disabled =
-    motionController.options.length <= 1 || (realDancer && activeModelKind !== "vrm");
+  motionModeSelect.disabled = motionController.options.length <= 1;
 }
 
 function restoreManualExpressionSelections() {
@@ -2455,6 +2883,731 @@ function restoreManualExpressionSelections() {
   applyEyeMorphSelection();
   applyFaceEmoteSelection();
   applyOutfitMorphSelection();
+}
+
+function normalizeBoneAlias(value = "") {
+  return String(value)
+    .normalize("NFKC")
+    .replace(/[\s_.\-:()[\]{}]/g, "")
+    .toLowerCase();
+}
+
+function getSoulBoneIdForName(name = "") {
+  const normalized = normalizeBoneAlias(name);
+  if (!normalized) {
+    return "";
+  }
+
+  return SOUL_BONE_ALIAS_LOOKUP.get(normalized) || "";
+}
+
+function cloneKeyframeTrack(track) {
+  return track.clone();
+}
+
+function getAnimationTrackBinding(trackName = "") {
+  const lastDot = trackName.lastIndexOf(".");
+  if (lastDot === -1) {
+    return null;
+  }
+
+  return {
+    targetName: trackName.slice(0, lastDot),
+    property: trackName.slice(lastDot + 1)
+  };
+}
+
+function createSoulBoneRecord(boneId, node, options = {}) {
+  const parentBoneId = options.parentBoneId ?? SOUL_BONE_PARENT_MAP[boneId] ?? "";
+  const bindNode = options.bindNode || node;
+  const positionNode = options.positionNode || bindNode;
+  const rotationNode = options.rotationNode || bindNode;
+  const scaleNode = options.scaleNode || bindNode;
+  return {
+    id: boneId,
+    parentId: parentBoneId || "",
+    sourceFormat: options.sourceFormat || "unknown",
+    sourceName: node?.name || "",
+    sourceAliases: [...new Set([
+      boneId,
+      ...(SOUL_BONE_ALIASES[boneId] || []),
+      node?.name || ""
+    ].filter(Boolean))],
+    node,
+    nodeName: node?.name || "",
+    nodeUuid: node?.uuid || "",
+    bindName: bindNode?.name || "",
+    bindUuid: bindNode?.uuid || "",
+    propertyNodes: {
+      position: positionNode,
+      quaternion: rotationNode,
+      scale: scaleNode
+    },
+    propertyBindNames: {
+      position: positionNode?.name || "",
+      quaternion: rotationNode?.name || "",
+      scale: scaleNode?.name || ""
+    },
+    rest: {
+      position: node?.position?.toArray?.() || [0, 0, 0],
+      rotation: node?.quaternion?.toArray?.() || [0, 0, 0, 1],
+      scale: node?.scale?.toArray?.() || [1, 1, 1],
+      propertyPosition: positionNode?.position?.toArray?.() || [0, 0, 0],
+      propertyRotation: rotationNode?.quaternion?.toArray?.() || [0, 0, 0, 1],
+      propertyScale: scaleNode?.scale?.toArray?.() || [1, 1, 1]
+    }
+  };
+}
+
+function collectThreeBones(root) {
+  const bones = [];
+  root?.traverse?.((object) => {
+    if (object.isBone) {
+      bones.push(object);
+    }
+  });
+  return bones;
+}
+
+function createSoulSkeletonFromVrm(vrm) {
+  const bones = new Map();
+  const humanoid = vrm?.humanoid;
+  if (!humanoid) {
+    return null;
+  }
+
+  SOUL_BONE_IDS.forEach((boneId) => {
+    const node = humanoid.getRawBoneNode?.(boneId);
+    const bindNode = humanoid.getNormalizedBoneNode?.(boneId) || node;
+    if (node || bindNode) {
+      bones.set(
+        boneId,
+        createSoulBoneRecord(boneId, node || bindNode, {
+          sourceFormat: "vrm",
+          bindNode
+        })
+      );
+    }
+  });
+
+  return {
+    format: "soulecho-skeleton",
+    version: 1,
+    sourceFormat: "vrm",
+    bones,
+    unmappedBones: collectThreeBones(vrm.scene).filter((bone) => (
+      ![...bones.values()].some((record) => record.node === bone)
+    )).map((bone) => ({
+      sourceName: bone.name,
+      node: bone,
+      nodeUuid: bone.uuid,
+      parentName: bone.parent?.name || ""
+    }))
+  };
+}
+
+function createSoulSkeletonFromMmd(root, sourceFormat = "mmd") {
+  const bones = new Map();
+  const unmappedBones = [];
+  const sourceBones = collectThreeBones(root);
+
+  sourceBones.forEach((bone) => {
+    const boneId = getSoulBoneIdForName(bone.name);
+    if (!boneId) {
+      unmappedBones.push({
+        sourceName: bone.name,
+        node: bone,
+        nodeUuid: bone.uuid,
+        parentName: bone.parent?.name || ""
+      });
+      return;
+    }
+
+    if (!bones.has(boneId)) {
+      bones.set(
+        boneId,
+        createSoulBoneRecord(boneId, bone, {
+          sourceFormat
+        })
+      );
+    }
+  });
+
+  const centerBone = sourceBones.find((bone) => (
+    bone.name === "センター" || normalizeBoneAlias(bone.name) === "center"
+  ));
+  const lowerBodyBone = sourceBones.find((bone) => bone.name === "下半身");
+  if (centerBone || lowerBodyBone) {
+    bones.set(
+      "hips",
+      createSoulBoneRecord("hips", lowerBodyBone || centerBone, {
+        sourceFormat,
+        bindNode: lowerBodyBone || centerBone,
+        positionNode: centerBone || lowerBodyBone,
+        rotationNode: lowerBodyBone || centerBone,
+        scaleNode: lowerBodyBone || centerBone
+      })
+    );
+  }
+
+  return {
+    format: "soulecho-skeleton",
+    version: 1,
+    sourceFormat,
+    bones,
+    unmappedBones
+  };
+}
+
+function createSoulSkeleton(root, { kind = "model", vrm = null } = {}) {
+  const skeleton = kind === "vrm"
+    ? createSoulSkeletonFromVrm(vrm)
+    : createSoulSkeletonFromMmd(root, kind === "pmx" || kind === "pmd" ? "mmd" : kind);
+
+  if (!skeleton) {
+    return null;
+  }
+
+  skeleton.boneList = [...skeleton.bones.values()];
+  skeleton.boneIds = skeleton.boneList.map((bone) => bone.id);
+  skeleton.bindNameToBoneId = new Map(
+    skeleton.boneList
+      .flatMap((bone) => [
+        [bone.bindName, bone.id],
+        [THREE.PropertyBinding.sanitizeNodeName(bone.bindName), bone.id],
+        [bone.nodeName, bone.id],
+        [THREE.PropertyBinding.sanitizeNodeName(bone.nodeName), bone.id],
+        [bone.sourceName, bone.id],
+        ...Object.values(bone.propertyBindNames || {}).flatMap((name) => [
+          [name, bone.id],
+          [THREE.PropertyBinding.sanitizeNodeName(name), bone.id]
+        ])
+      ])
+      .filter(([name]) => Boolean(name))
+  );
+  return skeleton;
+}
+
+function serializeSoulSkeletonForDebug(skeleton) {
+  if (!skeleton) {
+    return null;
+  }
+
+  return {
+    format: skeleton.format,
+    version: skeleton.version,
+    sourceFormat: skeleton.sourceFormat,
+    mappedBones: skeleton.boneList.length,
+    canonicalBones: skeleton.boneIds,
+    unmappedBones: skeleton.unmappedBones.map((bone) => bone.sourceName).filter(Boolean)
+  };
+}
+
+function serializeSoulAnimationForDebug(soulAnimation) {
+  if (!soulAnimation) {
+    return null;
+  }
+
+  return {
+    format: soulAnimation.format,
+    version: soulAnimation.version,
+    sourceFormat: soulAnimation.sourceFormat,
+    name: soulAnimation.name,
+    duration: soulAnimation.duration,
+    boneTracks: soulAnimation.boneTracks.length,
+    auxiliaryTracks: soulAnimation.auxiliaryTracks.length,
+    animatedBones: [...new Set(soulAnimation.boneTracks.map((track) => track.boneId))],
+    loopAnalysis: soulAnimation.loopAnalysis || null
+  };
+}
+
+function getActiveSoulSkeleton() {
+  return realDancer?.userData?.soulEchoModel?.skeleton || null;
+}
+
+function getActiveMotionRoot() {
+  return activeVrm?.scene || realDancer || null;
+}
+
+function hasModelPoseTarget() {
+  return Boolean(activeVrm?.humanoid || getActiveSoulSkeleton()?.boneList?.length);
+}
+
+function getCurrentSoulPose() {
+  const skeleton = getActiveSoulSkeleton();
+  if (!skeleton) {
+    return {};
+  }
+
+  return Object.fromEntries(
+    skeleton.boneList.map((bone) => [
+      bone.id,
+      {
+        position: bone.propertyNodes.position.position.toArray(),
+        rotation: bone.propertyNodes.quaternion.quaternion.toArray(),
+        scale: bone.propertyNodes.scale.scale.toArray()
+      }
+    ])
+  );
+}
+
+function getRestSoulPose() {
+  const skeleton = getActiveSoulSkeleton();
+  if (!skeleton) {
+    return {};
+  }
+
+  return Object.fromEntries(
+    skeleton.boneList.map((bone) => [
+      bone.id,
+      {
+        position: [...bone.rest.propertyPosition],
+        rotation: [...bone.rest.propertyRotation],
+        scale: [...bone.rest.propertyScale]
+      }
+    ])
+  );
+}
+
+function applySoulPose(pose = {}) {
+  const skeleton = getActiveSoulSkeleton();
+  if (!skeleton) {
+    return;
+  }
+
+  Object.entries(pose).forEach(([boneId, transform]) => {
+    const bone = skeleton.bones.get(boneId);
+    if (!bone) {
+      return;
+    }
+
+    if (Array.isArray(transform.position)) {
+      bone.propertyNodes.position?.position.fromArray(transform.position);
+    }
+    if (Array.isArray(transform.rotation)) {
+      bone.propertyNodes.quaternion?.quaternion.fromArray(transform.rotation).normalize();
+    }
+    if (Array.isArray(transform.scale)) {
+      bone.propertyNodes.scale?.scale.fromArray(transform.scale);
+    }
+  });
+  realDancer?.updateMatrixWorld(true);
+}
+
+function resetSoulPose() {
+  applySoulPose(getRestSoulPose());
+}
+
+function getSoulBoneIdForTrackTarget(targetName, skeleton = getActiveSoulSkeleton()) {
+  if (!targetName || !skeleton) {
+    return "";
+  }
+
+  return skeleton.bindNameToBoneId.get(targetName) ||
+    skeleton.bindNameToBoneId.get(THREE.PropertyBinding.sanitizeNodeName(targetName)) ||
+    getSoulBoneIdForName(targetName);
+}
+
+function isBoneTransformProperty(property = "") {
+  return property === "position" || property === "quaternion" || property === "scale";
+}
+
+function createSoulAnimationFromClip(clip, skeleton = getActiveSoulSkeleton(), options = {}) {
+  const boneTracks = [];
+  const auxiliaryTracks = [];
+
+  clip.tracks.forEach((track) => {
+    const binding = getAnimationTrackBinding(track.name);
+    const boneId = binding && isBoneTransformProperty(binding.property)
+      ? getSoulBoneIdForTrackTarget(binding.targetName, skeleton)
+      : "";
+
+    if (!binding || !boneId) {
+      auxiliaryTracks.push(cloneKeyframeTrack(track));
+      return;
+    }
+
+    boneTracks.push({
+      boneId,
+      property: binding.property,
+      sourceTrackName: track.name,
+      track: cloneKeyframeTrack(track)
+    });
+  });
+
+  const soulAnimation = {
+    format: "soulecho-animation",
+    version: 1,
+    sourceFormat: options.sourceFormat || "three",
+    name: options.name || clip.name || "Motion",
+    duration: clip.duration,
+    boneTracks,
+    auxiliaryTracks
+  };
+  soulAnimation.loopAnalysis = analyzeSoulAnimationLoop(soulAnimation);
+  return soulAnimation;
+}
+
+function getSkeletonBoneWorldHeight(skeleton, boneId) {
+  const node = skeleton?.bones.get(boneId)?.node;
+  if (!node) {
+    return 0;
+  }
+
+  const position = new THREE.Vector3();
+  node.getWorldPosition(position);
+  return position.y;
+}
+
+function cloneAndScalePositionTrack(track, scale) {
+  const clone = cloneKeyframeTrack(track);
+  if (scale === 1) {
+    return clone;
+  }
+
+  clone.values = new Float32Array(
+    [...clone.values].map((value, index) => (
+      index % 3 === 1 ? value * scale : value
+    ))
+  );
+  return clone;
+}
+
+function getTrackValueSize(track) {
+  if (typeof track.getValueSize === "function") {
+    return track.getValueSize();
+  }
+
+  return Math.max(1, Math.floor(track.values.length / Math.max(track.times.length, 1)));
+}
+
+function getTrackEndpointValues(track, valueSize) {
+  if (!track?.times?.length || track.times.length < 2 || track.values.length < valueSize * 2) {
+    return null;
+  }
+
+  const first = [...track.values.slice(0, valueSize)];
+  const lastStart = track.values.length - valueSize;
+  const last = [...track.values.slice(lastStart, lastStart + valueSize)];
+  return { first, last };
+}
+
+function getVectorEndpointDistance(track, valueSize = 3) {
+  const endpoints = getTrackEndpointValues(track, valueSize);
+  if (!endpoints) {
+    return 0;
+  }
+
+  let squared = 0;
+  for (let index = 0; index < valueSize; index += 1) {
+    squared += (endpoints.last[index] - endpoints.first[index]) ** 2;
+  }
+  return Math.sqrt(squared);
+}
+
+function getQuaternionEndpointAngle(track) {
+  const endpoints = getTrackEndpointValues(track, 4);
+  if (!endpoints) {
+    return 0;
+  }
+
+  const first = new THREE.Quaternion().fromArray(endpoints.first).normalize();
+  const last = new THREE.Quaternion().fromArray(endpoints.last).normalize();
+  return 2 * Math.acos(THREE.MathUtils.clamp(Math.abs(first.dot(last)), 0, 1));
+}
+
+function getScalarEndpointDelta(track) {
+  const endpoints = getTrackEndpointValues(track, 1);
+  if (!endpoints) {
+    return 0;
+  }
+
+  return Math.abs(endpoints.last[0] - endpoints.first[0]);
+}
+
+function analyzeSoulAnimationLoop(soulAnimation) {
+  const analysis = {
+    loopHint: "unknown",
+    shouldLoop: false,
+    comparableTracks: 0,
+    firstLastPoseDelta: {
+      positionMax: 0,
+      rootPosition: 0,
+      rotationMaxRadians: 0,
+      scaleMax: 0,
+      scalarMax: 0
+    },
+    thresholds: {
+      position: MOTION_LOOP_POSITION_EPSILON,
+      rootPosition: MOTION_LOOP_ROOT_POSITION_EPSILON,
+      rotationRadians: MOTION_LOOP_ROTATION_EPSILON,
+      scale: MOTION_LOOP_SCALE_EPSILON,
+      scalar: MOTION_LOOP_SCALAR_EPSILON
+    }
+  };
+
+  soulAnimation.boneTracks.forEach((boneTrack) => {
+    if (boneTrack.track?.times?.length < 2) {
+      return;
+    }
+
+    analysis.comparableTracks += 1;
+    if (boneTrack.property === "position") {
+      const distance = getVectorEndpointDistance(boneTrack.track, 3);
+      if (boneTrack.boneId === "hips") {
+        analysis.firstLastPoseDelta.rootPosition = Math.max(
+          analysis.firstLastPoseDelta.rootPosition,
+          distance
+        );
+      } else {
+        analysis.firstLastPoseDelta.positionMax = Math.max(
+          analysis.firstLastPoseDelta.positionMax,
+          distance
+        );
+      }
+    } else if (boneTrack.property === "quaternion") {
+      analysis.firstLastPoseDelta.rotationMaxRadians = Math.max(
+        analysis.firstLastPoseDelta.rotationMaxRadians,
+        getQuaternionEndpointAngle(boneTrack.track)
+      );
+    } else if (boneTrack.property === "scale") {
+      analysis.firstLastPoseDelta.scaleMax = Math.max(
+        analysis.firstLastPoseDelta.scaleMax,
+        getVectorEndpointDistance(boneTrack.track, 3)
+      );
+    }
+  });
+
+  soulAnimation.auxiliaryTracks.forEach((track) => {
+    const valueSize = getTrackValueSize(track);
+    if (track?.times?.length < 2) {
+      return;
+    }
+
+    analysis.comparableTracks += 1;
+    if (valueSize === 1) {
+      analysis.firstLastPoseDelta.scalarMax = Math.max(
+        analysis.firstLastPoseDelta.scalarMax,
+        getScalarEndpointDelta(track)
+      );
+    } else if (valueSize === 4 && track.name.endsWith(".quaternion")) {
+      analysis.firstLastPoseDelta.rotationMaxRadians = Math.max(
+        analysis.firstLastPoseDelta.rotationMaxRadians,
+        getQuaternionEndpointAngle(track)
+      );
+    } else if (valueSize === 3) {
+      analysis.firstLastPoseDelta.positionMax = Math.max(
+        analysis.firstLastPoseDelta.positionMax,
+        getVectorEndpointDistance(track, 3)
+      );
+    }
+  });
+
+  if (analysis.comparableTracks === 0) {
+    return analysis;
+  }
+
+  const poseMatches =
+    analysis.firstLastPoseDelta.positionMax <= MOTION_LOOP_POSITION_EPSILON &&
+    analysis.firstLastPoseDelta.rotationMaxRadians <= MOTION_LOOP_ROTATION_EPSILON &&
+    analysis.firstLastPoseDelta.scaleMax <= MOTION_LOOP_SCALE_EPSILON &&
+    analysis.firstLastPoseDelta.scalarMax <= MOTION_LOOP_SCALAR_EPSILON;
+  const rootMoves = analysis.firstLastPoseDelta.rootPosition > MOTION_LOOP_ROOT_POSITION_EPSILON;
+
+  if (poseMatches && !rootMoves) {
+    analysis.loopHint = "seamless";
+    analysis.shouldLoop = true;
+  } else if (poseMatches && rootMoves) {
+    analysis.loopHint = "cyclic-root-motion";
+    analysis.shouldLoop = false;
+  } else {
+    analysis.loopHint = "one-shot";
+    analysis.shouldLoop = false;
+  }
+
+  return analysis;
+}
+
+function applySoulAnimationLoopOverride(soulAnimation, option = {}) {
+  if (!soulAnimation?.loopAnalysis || typeof option.loop !== "boolean") {
+    return soulAnimation;
+  }
+
+  soulAnimation.loopAnalysis = {
+    ...soulAnimation.loopAnalysis,
+    inferredLoopHint: soulAnimation.loopAnalysis.loopHint,
+    inferredShouldLoop: soulAnimation.loopAnalysis.shouldLoop,
+    loopHint: option.loop ? "metadata-loop" : "metadata-one-shot",
+    shouldLoop: option.loop,
+    source: "motion-preset"
+  };
+  return soulAnimation;
+}
+
+function createSoulAnimationFromVrmAnimation(vrmAnimation, skeleton = getActiveSoulSkeleton(), options = {}) {
+  const sourceHipsHeight = Math.abs(vrmAnimation?.restHipsPosition?.y || 0);
+  const targetHipsHeight = Math.abs(getSkeletonBoneWorldHeight(skeleton, "hips"));
+  const hipsScale = sourceHipsHeight > 1e-5 && targetHipsHeight > 1e-5
+    ? targetHipsHeight / sourceHipsHeight
+    : 1;
+  const boneTracks = [];
+
+  vrmAnimation?.humanoidTracks?.rotation?.forEach((track, boneId) => {
+    boneTracks.push({
+      boneId,
+      property: "quaternion",
+      sourceTrackName: track.name,
+      track: cloneKeyframeTrack(track)
+    });
+  });
+
+  vrmAnimation?.humanoidTracks?.translation?.forEach((track, boneId) => {
+    boneTracks.push({
+      boneId,
+      property: "position",
+      sourceTrackName: track.name,
+      track: cloneAndScalePositionTrack(track, boneId === "hips" ? hipsScale : 1)
+    });
+  });
+
+  const soulAnimation = {
+    format: "soulecho-animation",
+    version: 1,
+    sourceFormat: options.sourceFormat || "vrma",
+    name: options.name || "Motion",
+    duration: vrmAnimation?.duration || 0,
+    boneTracks,
+    auxiliaryTracks: []
+  };
+  soulAnimation.loopAnalysis = analyzeSoulAnimationLoop(soulAnimation);
+  return soulAnimation;
+}
+
+function getSoulBoneTrackNode(bone, property) {
+  return bone?.propertyNodes?.[property] || bone?.node || null;
+}
+
+function getSoulBoneTrackRest(bone, property) {
+  if (property === "position") {
+    return bone?.rest?.propertyPosition || bone?.rest?.position || [0, 0, 0];
+  }
+  if (property === "quaternion") {
+    return bone?.rest?.propertyRotation || bone?.rest?.rotation || [0, 0, 0, 1];
+  }
+  if (property === "scale") {
+    return bone?.rest?.propertyScale || bone?.rest?.scale || [1, 1, 1];
+  }
+  return [];
+}
+
+function retargetPositionTrackToRest(track, restPosition) {
+  const clone = cloneKeyframeTrack(track);
+  if (clone.values.length < 3) {
+    return clone;
+  }
+
+  const base = [
+    clone.values[0],
+    clone.values[1],
+    clone.values[2]
+  ];
+  const values = new Float32Array(clone.values.length);
+  for (let index = 0; index < clone.values.length; index += 3) {
+    values[index] = restPosition[0] + clone.values[index] - base[0];
+    values[index + 1] = restPosition[1] + clone.values[index + 1] - base[1];
+    values[index + 2] = restPosition[2] + clone.values[index + 2] - base[2];
+  }
+  clone.values = values;
+  return clone;
+}
+
+function retargetQuaternionTrackToRest(track, restRotation) {
+  const clone = cloneKeyframeTrack(track);
+  if (clone.values.length < 4) {
+    return clone;
+  }
+
+  const rest = new THREE.Quaternion().fromArray(restRotation).normalize();
+  const animated = new THREE.Quaternion();
+  const retargeted = new THREE.Quaternion();
+  const values = new Float32Array(clone.values.length);
+  for (let index = 0; index < clone.values.length; index += 4) {
+    animated.fromArray(clone.values, index).normalize();
+    retargeted.copy(rest).multiply(animated).normalize();
+    retargeted.toArray(values, index);
+  }
+  clone.values = values;
+  return clone;
+}
+
+function retargetScaleTrackToRest(track, restScale) {
+  const clone = cloneKeyframeTrack(track);
+  if (clone.values.length < 3) {
+    return clone;
+  }
+
+  const values = new Float32Array(clone.values.length);
+  for (let index = 0; index < clone.values.length; index += 3) {
+    values[index] = restScale[0] * clone.values[index];
+    values[index + 1] = restScale[1] * clone.values[index + 1];
+    values[index + 2] = restScale[2] * clone.values[index + 2];
+  }
+  clone.values = values;
+  return clone;
+}
+
+function retargetSoulTrackForSkeleton(boneTrack, bone, skeleton) {
+  if (skeleton.sourceFormat === "vrm") {
+    return cloneKeyframeTrack(boneTrack.track);
+  }
+
+  const rest = getSoulBoneTrackRest(bone, boneTrack.property);
+  if (boneTrack.property === "position") {
+    return retargetPositionTrackToRest(boneTrack.track, rest);
+  }
+  if (boneTrack.property === "quaternion") {
+    return retargetQuaternionTrackToRest(boneTrack.track, rest);
+  }
+  if (boneTrack.property === "scale") {
+    return retargetScaleTrackToRest(boneTrack.track, rest);
+  }
+
+  return cloneKeyframeTrack(boneTrack.track);
+}
+
+function compileSoulAnimationClip(soulAnimation, skeleton = getActiveSoulSkeleton()) {
+  if (!soulAnimation || !skeleton) {
+    return null;
+  }
+
+  const tracks = [];
+  soulAnimation.boneTracks.forEach((boneTrack) => {
+    const bone = skeleton.bones.get(boneTrack.boneId);
+    const targetNode = getSoulBoneTrackNode(bone, boneTrack.property);
+    const targetName = targetNode?.name || bone?.bindName || bone?.nodeName;
+    if (!targetName) {
+      return;
+    }
+
+    const track = retargetSoulTrackForSkeleton(boneTrack, bone, skeleton);
+    track.name = `${targetName}.${boneTrack.property}`;
+    tracks.push(track);
+  });
+  soulAnimation.auxiliaryTracks.forEach((track) => tracks.push(cloneKeyframeTrack(track)));
+
+  const clip = new THREE.AnimationClip(soulAnimation.name, soulAnimation.duration, tracks);
+  clip.userData = { ...(clip.userData || {}) };
+  clip.userData.soulEchoAnimation = soulAnimation;
+  return clip;
+}
+
+function translateClipToSoulFormat(clip, skeleton = getActiveSoulSkeleton(), options = {}) {
+  const soulAnimation = createSoulAnimationFromClip(clip, skeleton, options);
+  const translatedClip = compileSoulAnimationClip(soulAnimation, skeleton) || clip;
+  translatedClip.name = options.name || clip.name;
+  translatedClip.userData = { ...(translatedClip.userData || {}) };
+  translatedClip.userData.soulEchoAnimation = soulAnimation;
+  return translatedClip;
 }
 
 function resetLoadedModelMotion({ resetExpressions = true } = {}) {
@@ -2471,7 +3624,7 @@ function resetLoadedModelMotion({ resetExpressions = true } = {}) {
   motionController.proceduralBasePose = null;
   motionController.proceduralBasePoseKey = "";
   motionController.proceduralBasePosePromise = null;
-  activeVrm?.humanoid?.resetNormalizedPose?.();
+  resetModelPose();
 
   if (resetExpressions) {
     restoreManualExpressionSelections();
@@ -2494,7 +3647,7 @@ function ensureVrmLookAtQuaternionProxy(vrm) {
 }
 
 function loadVrmAnimationClip(option) {
-  const cacheKey = `${activeVrm?.scene?.uuid || "none"}:${option.id}`;
+  const cacheKey = `${getActiveMotionRoot()?.uuid || "none"}:${option.id}`;
   const cached = motionController.clipCache.get(cacheKey);
   if (cached) {
     return Promise.resolve(cached);
@@ -2513,9 +3666,49 @@ function loadVrmAnimationClip(option) {
           return;
         }
 
-        ensureVrmLookAtQuaternionProxy(activeVrm);
-        const clip = createVRMAnimationClip(vrmAnimation, activeVrm);
+        const skeleton = getActiveSoulSkeleton();
+        let clip;
+        if (activeVrm?.humanoid) {
+          ensureVrmLookAtQuaternionProxy(activeVrm);
+          const nativeClip = createVRMAnimationClip(vrmAnimation, activeVrm);
+          nativeClip.name = option.label;
+          clip = translateClipToSoulFormat(
+            nativeClip,
+            skeleton,
+            {
+              sourceFormat: "vrma",
+              name: option.label
+            }
+          );
+          applySoulAnimationLoopOverride(clip.userData?.soulEchoAnimation, option);
+        } else {
+          const soulAnimation = createSoulAnimationFromVrmAnimation(
+            vrmAnimation,
+            skeleton,
+            {
+              sourceFormat: "vrma",
+              name: option.label
+            }
+          );
+          applySoulAnimationLoopOverride(soulAnimation, option);
+          clip = compileSoulAnimationClip(soulAnimation, skeleton);
+        }
+
+        if (!clip) {
+          reject(new Error(`Motion ${option.label} could not bind to the active model`));
+          return;
+        }
+
         clip.name = option.label;
+        clip.userData = {
+          ...(clip.userData || {}),
+          motionOption: {
+            id: option.id,
+            label: option.label,
+            sourceFormat: "vrma",
+            path: option.path || ""
+          }
+        };
         motionController.clipCache.set(cacheKey, clip);
         resolve(clip);
       },
@@ -2564,6 +3757,33 @@ function applyNormalizedPose(pose = {}) {
   activeVrm.humanoid.resetNormalizedPose?.();
   activeVrm.humanoid.setNormalizedPose?.(pose);
   activeVrm.update?.(0);
+}
+
+function getCurrentModelPose() {
+  return activeVrm?.humanoid ? getCurrentNormalizedPose() : getCurrentSoulPose();
+}
+
+function getRestModelPose() {
+  return activeVrm?.humanoid ? {} : getRestSoulPose();
+}
+
+function applyModelPose(pose = {}) {
+  if (activeVrm?.humanoid) {
+    applyNormalizedPose(pose);
+    return;
+  }
+
+  applySoulPose(pose);
+}
+
+function resetModelPose() {
+  if (activeVrm?.humanoid) {
+    activeVrm.humanoid.resetNormalizedPose?.();
+    activeVrm?.update?.(0);
+    return;
+  }
+
+  resetSoulPose();
 }
 
 function getPosePosition(transform = {}) {
@@ -2733,35 +3953,37 @@ function getProceduralBaseMotionOption() {
 }
 
 async function sampleMotionFirstFramePose(option) {
-  if (!activeVrm?.scene || !activeVrm?.humanoid?.getNormalizedPose) {
+  const motionRoot = getActiveMotionRoot();
+  if (!motionRoot || !hasModelPoseTarget()) {
     return {};
   }
 
   const clip = await loadVrmAnimationClip(option);
-  const previousPose = cloneNormalizedPose(activeVrm.humanoid.getNormalizedPose());
-  const mixer = new THREE.AnimationMixer(activeVrm.scene);
+  const previousPose = getCurrentModelPose();
+  const mixer = new THREE.AnimationMixer(motionRoot);
   const action = mixer.clipAction(clip);
 
   try {
-    activeVrm.humanoid.resetNormalizedPose?.();
+    resetModelPose();
     action.reset();
     action.play();
     mixer.setTime(0);
-    activeVrm.update?.(0);
-    return cloneNormalizedPose(activeVrm.humanoid.getNormalizedPose());
+    activeVrm?.update?.(0);
+    motionRoot.updateMatrixWorld(true);
+    return getCurrentModelPose();
   } finally {
     action.stop();
     mixer.stopAllAction();
-    mixer.uncacheRoot(activeVrm.scene);
-    activeVrm.humanoid.resetNormalizedPose?.();
-    activeVrm.humanoid.setNormalizedPose?.(previousPose);
-    activeVrm.update?.(0);
+    mixer.uncacheRoot(motionRoot);
+    resetModelPose();
+    applyModelPose(previousPose);
+    activeVrm?.update?.(0);
   }
 }
 
 async function loadProceduralBasePose() {
   const option = getProceduralBaseMotionOption();
-  const key = `${activeVrm?.scene?.uuid || "none"}:${option?.id || "rest"}`;
+  const key = `${getActiveMotionRoot()?.uuid || "none"}:${option?.id || "rest"}`;
 
   if (motionController.proceduralBasePoseKey === key && motionController.proceduralBasePose) {
     return motionController.proceduralBasePose;
@@ -3036,7 +4258,7 @@ function clearPoseTransition() {
 
 function startPoseTransition(fromPose, toPose, options = {}) {
   motionController.poseTransition = createPoseTransition(fromPose, toPose, options);
-  applyNormalizedPose(samplePoseTransition(motionController.poseTransition, 0));
+  applyModelPose(samplePoseTransition(motionController.poseTransition, 0));
 }
 
 function updatePoseTransition(delta) {
@@ -3046,7 +4268,7 @@ function updatePoseTransition(delta) {
   }
 
   transition.elapsed += Math.max(0, delta);
-  applyNormalizedPose(samplePoseTransition(transition, transition.elapsed));
+  applyModelPose(samplePoseTransition(transition, transition.elapsed));
 
   if (transition.elapsed < transition.duration) {
     motionController.status = "transitioning";
@@ -3075,9 +4297,10 @@ function stopIdleInterlude() {
 
   motionController.idleInterludeAction?.stop();
 
-  if (motionController.idleInterludeMixer && activeVrm?.scene) {
+  const motionRoot = getActiveMotionRoot();
+  if (motionController.idleInterludeMixer && motionRoot) {
     motionController.idleInterludeMixer.stopAllAction();
-    motionController.idleInterludeMixer.uncacheRoot(activeVrm.scene);
+    motionController.idleInterludeMixer.uncacheRoot(motionRoot);
   }
 
   motionController.idleInterludeMixer = null;
@@ -3088,24 +4311,30 @@ function stopIdleInterlude() {
 }
 
 function stopLoadedMotionPlayback() {
+  if (motionController.mixer && motionController.finishHandler) {
+    motionController.mixer.removeEventListener("finished", motionController.finishHandler);
+  }
+
   if (motionController.action) {
     motionController.action.stop();
     motionController.action = null;
   }
 
-  if (motionController.mixer && activeVrm?.scene) {
+  const motionRoot = getActiveMotionRoot();
+  if (motionController.mixer && motionRoot) {
     motionController.mixer.stopAllAction();
-    motionController.mixer.uncacheRoot(activeVrm.scene);
+    motionController.mixer.uncacheRoot(motionRoot);
   }
 
   motionController.mixer = null;
+  motionController.finishHandler = null;
   motionController.clip = null;
 }
 
 function holdPoseForTransition(pose) {
   stopLoadedMotionPlayback();
   stopIdleInterlude();
-  applyNormalizedPose(pose);
+  applyModelPose(pose);
 }
 
 function prepareMotionChangeForTransition(fromPose, targetOption) {
@@ -3119,31 +4348,51 @@ function prepareMotionChangeForTransition(fromPose, targetOption) {
   motionController.proceduralBasePose = null;
   motionController.proceduralBasePoseKey = "";
   motionController.proceduralBasePosePromise = null;
-  applyNormalizedPose(fromPose);
+  applyModelPose(fromPose);
 }
 
-function startLoopingVrmClip(clip) {
-  if (!activeVrm?.scene) {
+function startLoopingModelClip(clip) {
+  const motionRoot = getActiveMotionRoot();
+  if (!motionRoot) {
     return;
   }
 
-  activeVrm.humanoid?.resetNormalizedPose?.();
-  motionController.mixer = new THREE.AnimationMixer(activeVrm.scene);
+  const shouldLoop = clip.userData?.soulEchoAnimation?.loopAnalysis?.shouldLoop !== false;
+  activeVrm?.humanoid?.resetNormalizedPose?.();
+  motionController.mixer = new THREE.AnimationMixer(motionRoot);
   motionController.clip = clip;
   motionController.action = motionController.mixer.clipAction(clip);
   motionController.action.reset();
-  motionController.action.setLoop(THREE.LoopRepeat, Infinity);
+  motionController.action.setLoop(
+    shouldLoop ? THREE.LoopRepeat : THREE.LoopOnce,
+    shouldLoop ? Infinity : 1
+  );
+  motionController.action.clampWhenFinished = !shouldLoop;
+  if (!shouldLoop) {
+    motionController.finishHandler = (event) => {
+      if (event.action !== motionController.action) {
+        return;
+      }
+
+      motionController.status = "finished";
+      motionController.error = "";
+      updateLocalModelDebug();
+      updateModelAssetStatus();
+    };
+    motionController.mixer.addEventListener("finished", motionController.finishHandler);
+  }
   motionController.action.play();
   motionController.status = "playing";
   motionController.error = "";
 }
 
 function startIdleInterludeClip(clip) {
-  if (!activeVrm?.scene) {
+  const motionRoot = getActiveMotionRoot();
+  if (!motionRoot) {
     return;
   }
 
-  const mixer = new THREE.AnimationMixer(activeVrm.scene);
+  const mixer = new THREE.AnimationMixer(motionRoot);
   const action = mixer.clipAction(clip);
   const finishHandler = (event) => {
     if (event.action === action) {
@@ -3167,11 +4416,11 @@ function startIdleInterludeClip(clip) {
 }
 
 function applyCurrentProceduralPose() {
-  if (!activeVrm?.humanoid || !motionController.proceduralBasePose) {
+  if (!hasModelPoseTarget() || !motionController.proceduralBasePose) {
     return;
   }
 
-  applyNormalizedPose(
+  applyModelPose(
     buildProceduralPose(
       modelPreviewOptions.motion,
       motionController.proceduralTime,
@@ -3181,7 +4430,7 @@ function applyCurrentProceduralPose() {
 }
 
 function finishIdleInterlude() {
-  const fromPose = getCurrentNormalizedPose();
+  const fromPose = getCurrentModelPose();
   stopIdleInterlude();
   motionController.proceduralTime = 0;
   resetIdleInterludeSchedule({ startup: false });
@@ -3220,7 +4469,7 @@ function startIdleInterlude() {
   }
 
   motionController.idleInterludeStartupPending = false;
-  const fromPose = getCurrentNormalizedPose();
+  const fromPose = getCurrentModelPose();
   const targetPose = buildProceduralPose(
     interludeOption.id,
     0,
@@ -3261,7 +4510,7 @@ function updateIdleInterlude(delta) {
     return true;
   }
 
-  applyNormalizedPose(
+  applyModelPose(
     buildProceduralPose(
       motionController.idleInterludeMotionId,
       motionController.idleInterludeTime,
@@ -3301,9 +4550,9 @@ function updateIdleInterludeSchedule(delta) {
   startIdleInterlude();
 }
 
-function applyProceduralVrmMotion(delta) {
+function applyProceduralModelMotion(delta) {
   const option = getMotionModeOption(modelPreviewOptions.motion);
-  if (!activeVrm?.humanoid || !isProceduralMotionOption(option)) {
+  if (!hasModelPoseTarget() || !isProceduralMotionOption(option)) {
     return false;
   }
 
@@ -3331,9 +4580,9 @@ function applyProceduralVrmMotion(delta) {
 
 async function applyLoadedModelMotion() {
   const option = getMotionModeOption(modelPreviewOptions.motion);
-  const fromPose = getCurrentNormalizedPose();
+  const fromPose = getCurrentModelPose();
 
-  if (!activeVrm?.humanoid) {
+  if (!hasModelPoseTarget()) {
     resetLoadedModelMotion();
     refreshModelPreview();
     return;
@@ -3341,7 +4590,7 @@ async function applyLoadedModelMotion() {
 
   prepareMotionChangeForTransition(fromPose, option);
 
-  if (isProceduralMotionOption(option) && activeVrm?.humanoid) {
+  if (isProceduralMotionOption(option)) {
     motionController.status = "loading";
     motionController.error = "";
     const loadingId = `${option.id}:${performance.now()}`;
@@ -3389,13 +4638,13 @@ async function applyLoadedModelMotion() {
     return;
   }
 
-  if (option.id === STILL_MOTION_ID || !activeVrm?.scene) {
-    startPoseTransition(fromPose, {}, {
+  if (option.id === STILL_MOTION_ID || !getActiveMotionRoot()) {
+    startPoseTransition(fromPose, getRestModelPose(), {
       targetId: STILL_MOTION_ID,
       targetLabel: STILL_MOTION_OPTION.label,
       phase: "transitioning",
       onComplete: () => {
-        activeVrm?.humanoid?.resetNormalizedPose?.();
+        resetModelPose();
         motionController.status = "idle";
         motionController.error = "";
         updateLocalModelDebug();
@@ -3429,7 +4678,7 @@ async function applyLoadedModelMotion() {
       targetLabel: option.label,
       phase: "transitioning",
       onComplete: () => {
-        startLoopingVrmClip(clip);
+        startLoopingModelClip(clip);
         updateLocalModelDebug();
         updateModelAssetStatus();
       }
@@ -3457,7 +4706,7 @@ function updateLoadedModelMotion(delta) {
     return;
   }
 
-  if (applyProceduralVrmMotion(delta)) {
+  if (applyProceduralModelMotion(delta)) {
     return;
   }
   motionController.mixer?.update(delta);
@@ -4355,10 +5604,14 @@ function updatePreviewControls() {
 function updateLocalModelDebug() {
   const alphaLayerStats = getMmdAlphaLayerStats();
   const motionState = getMotionPlaybackState();
+  const loopAnalysis = motionController.clip?.userData?.soulEchoAnimation?.loopAnalysis;
   document.documentElement.dataset.pmxAlphaLayers = String(alphaLayerStats.active);
   document.documentElement.dataset.pmxAlphaCutouts = String(alphaLayerStats.cutouts);
   document.documentElement.dataset.effectiveModelMotion = motionState.effectiveId;
   document.documentElement.dataset.modelMotionInterlude = motionState.interludeState;
+  document.documentElement.dataset.modelMotionLoopHint = loopAnalysis?.loopHint || "";
+  document.documentElement.dataset.modelMotionShouldLoop =
+    loopAnalysis ? String(loopAnalysis.shouldLoop) : "";
 
   if (!window.localModelDebug) {
     return;
@@ -4393,6 +5646,9 @@ function updateLocalModelDebug() {
     motionStatus: motionController.status,
     motionError: motionController.error,
     motionClipDuration: motionController.clip?.duration || 0,
+    soulEchoAnimation: serializeSoulAnimationForDebug(
+      motionController.clip?.userData?.soulEchoAnimation
+    ),
     motionInterlude: motionState.interludeState,
     motionInterludeId: motionState.interludeId,
     motionInterludeLabel: motionState.interludeLabel,
@@ -4893,6 +6149,13 @@ function activateLoadedModel(mesh, modelAsset, { kind = getModelKind(modelAsset)
   window.localModel = realDancer;
   window.localVrm = activeVrm;
   realDancer.name = modelAsset.label || `Local ${getModelFormatLabel(kind)} model`;
+  const soulSkeleton = createSoulSkeleton(realDancer, { kind, vrm });
+  realDancer.userData.soulEchoModel = {
+    format: "soulecho-model",
+    version: 1,
+    sourceFormat: kind,
+    skeleton: soulSkeleton
+  };
   setModelMaterials(realDancer, kind);
   frameLoadedModel(realDancer);
   if (kind === "vrm") {
@@ -4936,7 +6199,13 @@ function activateLoadedModel(mesh, modelAsset, { kind = getModelKind(modelAsset)
     motionOptions: motionController.options.map((option) => option.label),
     motionStatus: motionController.status,
     visible: realDancer.visible,
-    vrmMeta: activeVrm?.meta || null
+    vrmMeta: activeVrm?.meta || null,
+    soulEchoModel: {
+      format: realDancer.userData.soulEchoModel.format,
+      version: realDancer.userData.soulEchoModel.version,
+      sourceFormat: realDancer.userData.soulEchoModel.sourceFormat,
+      skeleton: serializeSoulSkeletonForDebug(soulSkeleton)
+    }
   };
   updateLocalModelDebug();
   applyLoadedModelMotion();
@@ -5153,6 +6422,21 @@ dialogueForm.addEventListener("submit", (event) => {
   submitDialoguePrompt(dialogueInput.value);
 });
 
+companionFacePlay.addEventListener("click", () => {
+  companionFaceVideo.play()
+    .then(() => {
+      companionFacePlay.hidden = true;
+      setCompanionFaceState("playing", "Speaking");
+    })
+    .catch((error) => {
+      setCompanionFaceState(
+        "error",
+        "Voice error",
+        error instanceof Error ? error.message : "Playback was blocked"
+      );
+    });
+});
+
 clearMemoryButton.addEventListener("click", () => {
   const memoryDialogWasOpen = memoryDialog.open;
   clearAllCompanionMemory();
@@ -5211,6 +6495,7 @@ previewOptionButtons.forEach((button) => {
 applySavedDemoProfileToUrlState();
 pruneDeprecatedPreviewUrlParams();
 populateSpeechPhraseSelect();
+initializeCompanionFace();
 addDialogueLine("system", isDemoMode() ? "demo mode ready" : `${OLLAMA_MODEL} ready`);
 updatePreviewControls();
 
