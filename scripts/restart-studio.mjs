@@ -1,14 +1,11 @@
 #!/usr/bin/env node
-import { spawn } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import { existsSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { killPort } from "./process-utils.mjs";
 
 const DEFAULT_HOST = "127.0.0.1";
 const DEFAULT_PORT = 5173;
-const DEFAULT_CONFIGURATION = "default";
-const VALUE_OPTIONS = new Set(["--host", "--port"]);
-
 function readOption(name, fallback) {
   const prefix = `${name}=`;
   const index = process.argv.findIndex((arg) => arg === name || arg.startsWith(prefix));
@@ -25,28 +22,15 @@ function readOption(name, fallback) {
   return process.argv[index + 1] || fallback;
 }
 
-function getPositionalArgument(fallback) {
-  const optionValueIndexes = new Set();
-
-  process.argv.forEach((arg, index) => {
-    if (VALUE_OPTIONS.has(arg)) {
-      optionValueIndexes.add(index + 1);
-    }
+function run(command, args) {
+  const result = spawnSync(command, args, {
+    stdio: "inherit",
+    shell: process.platform === "win32"
   });
 
-  const value = process.argv
-    .slice(2)
-    .find((arg, index) => !arg.startsWith("--") && !optionValueIndexes.has(index + 2));
-
-  return value || fallback;
-}
-
-function slugify(value) {
-  return value
-    .trim()
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-+|-+$/g, "");
+  if (result.status !== 0) {
+    process.exit(result.status || 1);
+  }
 }
 
 function viteCommand() {
@@ -62,20 +46,18 @@ function viteCommand() {
 
 const host = readOption("--host", process.env.HOST || DEFAULT_HOST);
 const port = Number(readOption("--port", process.env.PORT || DEFAULT_PORT));
-const configuration = slugify(getPositionalArgument(DEFAULT_CONFIGURATION)) || DEFAULT_CONFIGURATION;
 
 if (!Number.isInteger(port) || port < 1 || port > 65535) {
   console.error(`Invalid port: ${port}`);
   process.exit(1);
 }
 
-await killPort(port);
+await killPort(port, { reportEmpty: true });
 
-const configureUrl = `http://${host}:${port}/?mode=admin&config=${encodeURIComponent(configuration)}`;
-console.log(`Configuring demo profiles${configuration !== DEFAULT_CONFIGURATION ? ` (prefill: ${configuration})` : ""}`);
-console.log(`Open ${configureUrl}`);
-console.log('Click "Save demo profile", then enter the profile name to write that configuration.');
+console.log("Building production bundle...");
+run(process.platform === "win32" ? "npm.cmd" : "npm", ["run", "build"]);
 
+console.log(`Starting SoulEcho Studio on http://${host}:${port}/?mode=studio`);
 const child = spawn(viteCommand(), ["--host", host, "--port", String(port), "--strictPort"], {
   stdio: "inherit",
   shell: process.platform === "win32"

@@ -5,10 +5,10 @@
   "license": "GPL-3.0-only",
   "type": "module",
   "scripts": {
-    "dev": "vite --host 127.0.0.1",
-    "dev:restart": "node scripts/restart-dev.mjs",
+    "dev": "node scripts/run-studio.mjs",
+    "studio": "node scripts/run-studio.mjs",
+    "studio:restart": "node scripts/restart-studio.mjs",
     "build": "vite build",
-    "configure": "node scripts/configure-demo.mjs",
     "run": "node scripts/run-demo.mjs",
     "demo": "node scripts/run-demo.mjs",
     "demo:build": "node scripts/run-demo.mjs --build-only",

@@ -110,12 +110,14 @@ function pickScene(config) {
 
 function normalizeAssetEntry(name, entry, root) {
   const normalized = typeof entry === "string" ? { path: entry } : entry || {};
+  const assetRoot = normalized.assetRoot || root;
 
   return {
     name,
     kind: normalized.kind || name,
     path: normalized.path || "",
-    url: joinUrl(root, normalized.path || ""),
+    assetRoot,
+    url: joinUrl(assetRoot, normalized.path || ""),
     required: Boolean(normalized.required),
     label: normalized.label || normalized.name || name
   };
@@ -314,7 +316,49 @@ export async function loadLocalAssetConfig(configUrl = DEFAULT_CONFIG_URL) {
     usingExample = true;
   }
 
-  const scene = pickScene(config);
+  let runtimeProfile = {};
+  try {
+    runtimeProfile = await fetchJson(DEMO_PROFILE_URL);
+  } catch {
+    runtimeProfile = {};
+  }
+  const configuredScene = pickScene(config);
+  const profileModelPreset = runtimeProfile.modelPresetAsset
+    ? {
+        ...runtimeProfile.modelPresetAsset,
+        assetRoot: runtimeProfile.assetRoot || "."
+      }
+    : null;
+  const configuredModelPresets = [
+    ...(profileModelPreset ? [profileModelPreset] : []),
+    ...(configuredScene?.modelPresets || [])
+  ].filter((preset, index, presets) => (
+    presets.findIndex((candidate) => (
+      candidate?.id === preset?.id ||
+      (
+        candidate?.path === preset?.path &&
+        (candidate?.assetRoot || config.assetRoot) === (preset?.assetRoot || config.assetRoot)
+      )
+    )) === index
+  ));
+  const configuredMotionPresets = [
+    ...(runtimeProfile.motionPresets || []).map((preset) => ({
+      ...preset,
+      assetRoot: preset.assetRoot || runtimeProfile.assetRoot || "."
+    })),
+    ...(configuredScene?.motionPresets || [])
+  ].filter((preset, index, presets) => (
+    presets.findIndex((candidate) => (
+      candidate?.id === preset?.id || candidate?.path === preset?.path
+    )) === index
+  ));
+  const scene = {
+    ...configuredScene,
+    activeModelPreset: runtimeProfile.modelPreset || configuredScene?.activeModelPreset,
+    modelPreview: runtimeProfile.modelPreview || configuredScene?.modelPreview || {},
+    modelPresets: configuredModelPresets,
+    motionPresets: configuredMotionPresets
+  };
   const root = config.assetRoot || "/local-resources/original-video-assets/";
   const discoveredModelPresets = await fetchDiscoveredModelPresets();
   const discoveredMotionPresets = await fetchDiscoveredMotionPresets();
@@ -347,7 +391,13 @@ export async function loadLocalAssetConfig(configUrl = DEFAULT_CONFIG_URL) {
   );
 
   return {
-    config,
+    config: {
+      ...config,
+      configuration: runtimeProfile.configuration || config.profile || "default",
+      faceModel: runtimeProfile.faceModel || config.faceModel || "",
+      scheduler: runtimeProfile.scheduler || config.scheduler || null
+    },
+    runtimeProfile,
     configSource,
     usingExample,
     scene,

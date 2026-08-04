@@ -94,7 +94,7 @@ function getDemoProfilePath(configuration) {
 
 function validateDemoProfile(profilePath) {
   if (!existsSync(profilePath)) {
-    console.error(`Missing ${profilePath}. Run: npm run configure -- ${configuration}`);
+    console.error(`Missing ${profilePath}. Run: npm run studio -- ${configuration}`);
     process.exit(1);
   }
 

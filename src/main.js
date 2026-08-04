@@ -61,13 +61,11 @@ const previewValueOutputs = new Map(
 const previewOptionButtons = [...document.querySelectorAll("[data-option-group]")];
 const assetStatus = document.querySelector("#assetStatus");
 const queryParams = new URLSearchParams(window.location.search);
-const APP_MODES = new Set(["admin", "demo"]);
 const appMode = document.documentElement.dataset.entry === "demo" ||
-  window.location.pathname.endsWith("/demo.html")
+  window.location.pathname.endsWith("/demo.html") ||
+  queryParams.get("mode") === "demo"
   ? "demo"
-  : APP_MODES.has(queryParams.get("mode"))
-    ? queryParams.get("mode")
-    : "admin";
+  : "studio";
 let demoConfigurationName = normalizeDemoConfigurationName(
   queryParams.get("config") || queryParams.get("profile") || "default"
 );
@@ -104,7 +102,6 @@ const COMPANION_SYSTEM_PROMPT =
   "You are the currently visible character. Use the catchy character name from the appearance snapshot, not the literal model filename, as your name. Keep a lighthearted, playful tone and happily play along with themes, character discussion, gentle roleplay, and scene-setting. Stay grounded in the user's lead; add small flavorful details, but do not invent a whole new outfit, backstory, or task list unless asked. Reply in one or two short natural sentences. Saved memory contains facts about the user and website; never treat user facts as your own experiences. Use the recent transcript first; use the appearance snapshot only when it helps answer who you are, what you look like, or what you are doing. Do not recite model metadata unless the user asks. Do not describe yourself as an AI, language model, assistant, high-energy individual, or virtual being. Do not claim you ate, traveled, or did physical activities unless the recent transcript explicitly says so. Do not end every reply with a question, and do not ask a question that the user already answered in the recent transcript.";
 const COMPANION_MEMORY_STORAGE_KEY = "digitalCompanion.vitaMemory";
 const COMPANION_CONTEXT_STORAGE_KEY = "digitalCompanion.contextLog";
-const DEMO_PROFILE_STORAGE_KEY = "digitalCompanion.demoProfile";
 const RECENT_TRANSCRIPT_LINES = 20;
 const PERSISTED_CONTEXT_LINES = 40;
 const DEFAULT_USER_PROFILE = {
@@ -2447,10 +2444,8 @@ function populateFaceModelSelect(payload = {}, configuredId = "") {
     faceModelSelect.append(option);
   });
 
-  const savedFaceModel = loadSavedDemoProfile()?.faceModel || "";
   const requestedFromUrl = queryParams.get(PREVIEW_QUERY_KEYS.faceModel) || "";
   const requested = requestedFromUrl ||
-    savedFaceModel ||
     configuredId ||
     faceModelController.configuredId ||
     payload.selected ||
@@ -2490,8 +2485,7 @@ function applyConfiguredFaceModel(configuredId = "") {
   faceModelController.configuredId = configuredId;
   if (
     !configuredId ||
-    queryParams.has(PREVIEW_QUERY_KEYS.faceModel) ||
-    loadSavedDemoProfile()?.faceModel
+    queryParams.has(PREVIEW_QUERY_KEYS.faceModel)
   ) {
     return;
   }
@@ -3144,7 +3138,6 @@ function getMotionStatusSummary() {
 
 function configureMotionOptions(state) {
   const configured = state?.scene?.modelPreview || {};
-  const savedDemoPreview = getSavedDemoPreviewOptions() || {};
   const vrmaOptions = (state?.motionPresets || [])
     .filter(isReadyVrmaMotionPreset)
     .map((preset) => ({
@@ -3165,9 +3158,7 @@ function configureMotionOptions(state) {
       [
         queryParams.get("modelMotion"),
         configured.motion,
-        configured.modelMotion,
-        savedDemoPreview.motion,
-        savedDemoPreview.modelMotion
+        configured.modelMotion
       ],
       getMotionModeChoices(),
       STILL_MOTION_ID
@@ -5124,22 +5115,6 @@ function isDemoMode() {
   return appMode === "demo";
 }
 
-function loadSavedDemoProfile() {
-  try {
-    const stored = JSON.parse(localStorage.getItem(DEMO_PROFILE_STORAGE_KEY) || "null");
-    if (!stored || typeof stored !== "object") {
-      return null;
-    }
-    return stored;
-  } catch {
-    return null;
-  }
-}
-
-function getSavedDemoPreviewOptions() {
-  return isDemoMode() ? loadSavedDemoProfile()?.modelPreview || null : null;
-}
-
 async function saveDemoProfile(configurationName = demoConfigurationName) {
   demoConfigurationName = normalizeDemoConfigurationName(configurationName);
   const selectedPreset = localAssetState?.selectedModelPreset || null;
@@ -5164,7 +5139,9 @@ async function saveDemoProfile(configurationName = demoConfigurationName) {
   const profile = {
     configuration: demoConfigurationName,
     savedAt: new Date().toISOString(),
-    assetRoot: localAssetState?.config?.assetRoot || "/local-resources/original-video-assets/",
+    assetRoot: selectedPreset?.assetRoot ||
+      localAssetState?.config?.assetRoot ||
+      "/local-resources/original-video-assets/",
     modelPreset: selectedPreset?.id || queryParams.get(PREVIEW_QUERY_KEYS.modelPreset) || "",
     modelPresetLabel: selectedPreset?.label || "Configured model",
     modelPresetAsset: selectedPreset
@@ -5182,7 +5159,6 @@ async function saveDemoProfile(configurationName = demoConfigurationName) {
     motionPresets
   };
 
-  localStorage.setItem(DEMO_PROFILE_STORAGE_KEY, JSON.stringify(profile));
   try {
     const response = await fetch(appUrl("demo-profile"), {
       method: "POST",
@@ -5200,9 +5176,9 @@ async function saveDemoProfile(configurationName = demoConfigurationName) {
   } catch (error) {
     addDialogueLine(
       "system",
-      `demo profile saved in browser only: ${error instanceof Error ? error.message : "compile failed"}`
+      `demo profile save failed: ${error instanceof Error ? error.message : "compile failed"}`
     );
-    showSpeechPhrase("Demo profile saved locally.");
+    showSpeechPhrase("Demo profile could not be saved.");
   }
   return profile;
 }
@@ -5216,24 +5192,9 @@ function replaceUrlFromQueryParams() {
   );
 }
 
-function applySavedDemoProfileToUrlState() {
+function initializeAppMode() {
   document.documentElement.dataset.appMode = appMode;
   document.documentElement.dataset.demoConfiguration = demoConfigurationName;
-  if (!isDemoMode() || window.location.pathname.endsWith("/demo.html")) {
-    return;
-  }
-
-  const profile = loadSavedDemoProfile();
-  const savedModelPreset = profile?.modelPreset;
-  if (savedModelPreset && !queryParams.has(PREVIEW_QUERY_KEYS.modelPreset)) {
-    queryParams.set(PREVIEW_QUERY_KEYS.modelPreset, savedModelPreset);
-    replaceUrlFromQueryParams();
-  }
-  const savedFaceModel = profile?.faceModel;
-  if (savedFaceModel && !queryParams.has(PREVIEW_QUERY_KEYS.faceModel)) {
-    queryParams.set(PREVIEW_QUERY_KEYS.faceModel, savedFaceModel);
-    replaceUrlFromQueryParams();
-  }
 }
 
 function openProfileSaveDialog() {
@@ -5260,18 +5221,15 @@ function closeProfileSaveDialog() {
 
 function getModelPreviewOptions(sceneConfig) {
   const configured = sceneConfig?.modelPreview || {};
-  const savedDemoPreview = getSavedDemoPreviewOptions() || {};
   const mode = pickChoice(
     queryParams.get("modelMode") ||
-      savedDemoPreview.mode ||
-      savedDemoPreview.modelMode ||
       configured.mode ||
       configured.modelMode,
     MODEL_MODE_CHOICES,
     DEFAULT_MODEL_PREVIEW_OPTIONS.mode
   );
   const lighting = pickChoice(
-    queryParams.get("modelLighting") || savedDemoPreview.lighting || configured.lighting,
+    queryParams.get("modelLighting") || configured.lighting,
     MODEL_LIGHTING_CHOICES,
     DEFAULT_MODEL_PREVIEW_OPTIONS.lighting
   );
@@ -5280,43 +5238,41 @@ function getModelPreviewOptions(sceneConfig) {
       [
         queryParams.get("modelMotion"),
         configured.motion,
-        configured.modelMotion,
-        savedDemoPreview.motion,
-        savedDemoPreview.modelMotion
+        configured.modelMotion
       ],
       getMotionModeChoices(),
       STILL_MOTION_ID
     )
   );
   const stageLighting = parseUnitInterval(
-    queryParams.get("stageLighting") ?? savedDemoPreview.stageLighting ?? configured.stageLighting,
+    queryParams.get("stageLighting") ?? configured.stageLighting,
     DEFAULT_MODEL_PREVIEW_OPTIONS.stageLighting
   );
   const materialBoostStrength = Number(
     queryParams.get("materialBoostStrength") ??
-      savedDemoPreview.materialBoostStrength ??
+      configured.materialBoostStrength ??
       DEFAULT_MODEL_PREVIEW_OPTIONS.materialBoostStrength
   );
   const saturation = parseClampedNumber(
-    queryParams.get("modelSaturation") ?? savedDemoPreview.saturation ?? configured.saturation,
+    queryParams.get("modelSaturation") ?? configured.saturation,
     DEFAULT_MODEL_PREVIEW_OPTIONS.saturation,
     0,
     2
   );
   const bloomStrength = parseClampedNumber(
-    queryParams.get("modelBloom") ?? savedDemoPreview.bloomStrength ?? configured.bloomStrength,
+    queryParams.get("modelBloom") ?? configured.bloomStrength,
     DEFAULT_MODEL_PREVIEW_OPTIONS.bloomStrength,
     0,
     0.6
   );
   const cameraZoom = parseClampedNumber(
-    queryParams.get("cameraZoom") ?? savedDemoPreview.cameraZoom ?? configured.cameraZoom,
+    queryParams.get("cameraZoom") ?? configured.cameraZoom,
     DEFAULT_MODEL_PREVIEW_OPTIONS.cameraZoom,
     CAMERA_ZOOM_MIN,
     CAMERA_ZOOM_MAX
   );
   const readingWpm = Math.round(parseClampedNumber(
-    queryParams.get("readingWpm") ?? savedDemoPreview.readingWpm ?? configured.readingWpm,
+    queryParams.get("readingWpm") ?? configured.readingWpm,
     DEFAULT_MODEL_PREVIEW_OPTIONS.readingWpm,
     READING_WPM_MIN,
     READING_WPM_MAX
@@ -6822,7 +6778,7 @@ previewOptionButtons.forEach((button) => {
   });
 });
 
-applySavedDemoProfileToUrlState();
+initializeAppMode();
 pruneDeprecatedPreviewUrlParams();
 populateSpeechPhraseSelect();
 initializeCompanionFace();
@@ -6890,7 +6846,7 @@ loadAssetConfig()
   .then((state) => {
     localAssetState = state;
     window.localAssetState = state;
-    if (isDemoMode() && state.config?.configuration) {
+    if (state.config?.configuration) {
       demoConfigurationName = normalizeDemoConfigurationName(state.config.configuration);
       document.documentElement.dataset.demoConfiguration = demoConfigurationName;
     }

@@ -121,17 +121,24 @@ npm run dev
 
 Then open the local development URL shown by Vite.
 
-### Admin and demo modes
+### Studio and demo modes
 
-Use admin mode to tune and save demo profiles:
+Use Studio mode to develop the scene, tune its controls, and save demo profiles:
 
 ```bash
-npm run configure
+npm run studio
 ```
 
 ```text
-http://127.0.0.1:5173/?mode=admin&config=default
+http://127.0.0.1:5173/?mode=studio&config=default
 ```
+
+`npm run dev` launches this same Studio mode; there is no separate admin mode.
+
+Studio and Demo both use `public/demo-profile.json` as their runtime baseline
+for the stage model, companion face folder, preview timing, motion, and blink
+animation. Studio adds locally discovered editing choices on top of that shared
+profile; saving makes the selected choices the next baseline for both modes.
 
 Click `Save demo profile` after choosing the stage model, companion face model,
 and preview settings. The selected AnimaVisage face model is stored in the
@@ -140,10 +147,10 @@ for the profile name. You can also pass an optional name after `--` to prefill
 that dialog:
 
 ```bash
-npm run configure -- sameko
+npm run studio -- sameko
 ```
 
-In dev/preview, saving writes deployable profiles to:
+In Studio/preview, saving writes deployable profiles to:
 
 ```text
 public/demo-configs/<name>.json
