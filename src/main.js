@@ -526,7 +526,8 @@ const demoScheduler = {
   startedAt: 0,
   state: "idle",
   lastEvent: "",
-  nextEvent: ""
+  nextEvent: "",
+  continuationGreetingStarted: false
 };
 
 const scene = new THREE.Scene();
@@ -2086,14 +2087,6 @@ function revealAssistantDialogueReply(message) {
   showSpeechPhrase(message.content);
 }
 
-function shouldSkipContinuationGreeting() {
-  const recentDialogue = dialogueController.messages
-    .filter((message) => message.role === "user" || message.role === "assistant")
-    .slice(-2);
-  return recentDialogue.length === 2 &&
-    recentDialogue.every((message) => message.role === "assistant");
-}
-
 function hasStoredCompanionMemory() {
   const hasProfileMemory = isProfileMetadataEnabled() && (() => {
     const profile = getCompanionProfile();
@@ -2159,9 +2152,10 @@ async function requestContinuationGreeting() {
 async function runSchedulerCommand(command) {
   const normalizedCommand = command.trim().toLowerCase();
   if (normalizedCommand === "continue-greeting" || normalizedCommand === "continuation-greeting") {
-    if (shouldSkipContinuationGreeting()) {
+    if (demoScheduler.continuationGreetingStarted) {
       return true;
     }
+    demoScheduler.continuationGreetingStarted = true;
 
     try {
       addOllamaThinkingNotice();
