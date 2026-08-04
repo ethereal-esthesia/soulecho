@@ -12,7 +12,7 @@ import {
   createVRMAnimationClip
 } from "@pixiv/three-vrm-animation";
 import { MMDLoader } from "three-stdlib";
-import { loadDemoAssetConfig, loadLocalAssetConfig, renderAssetStatus } from "./localAssetLoader.js";
+import { loadDemoAssetConfig, loadStudioAssetConfig, renderAssetStatus } from "./localAssetLoader.js";
 
 const canvas = document.querySelector("#scene");
 const togglePlay = document.querySelector("#togglePlay");
@@ -6838,7 +6838,7 @@ canvas.addEventListener("dblclick", (event) => {
 
 window.addEventListener("resize", resize);
 
-const loadAssetConfig = isDemoMode() ? loadDemoAssetConfig : loadLocalAssetConfig;
+const loadAssetConfig = isDemoMode() ? loadDemoAssetConfig : loadStudioAssetConfig;
 
 loadAppSettings();
 
