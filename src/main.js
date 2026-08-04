@@ -6781,8 +6781,6 @@ previewOptionButtons.forEach((button) => {
 initializeAppMode();
 pruneDeprecatedPreviewUrlParams();
 populateSpeechPhraseSelect();
-initializeCompanionFace();
-loadFaceModelOptions();
 addDialogueLine("system", isDemoMode() ? "demo mode ready" : `${OLLAMA_MODEL} ready`);
 updatePreviewControls();
 
@@ -6843,7 +6841,7 @@ const loadAssetConfig = isDemoMode() ? loadDemoAssetConfig : loadStudioAssetConf
 loadAppSettings();
 
 loadAssetConfig()
-  .then((state) => {
+  .then(async (state) => {
     localAssetState = state;
     window.localAssetState = state;
     if (state.config?.configuration) {
@@ -6852,7 +6850,9 @@ loadAssetConfig()
     }
     configureMotionOptions(state);
     populateModelPresetSelect(state);
+    await loadFaceModelOptions(state.config?.faceModel);
     applyConfiguredFaceModel(state.config?.faceModel);
+    initializeCompanionFace();
     renderAssetStatus(state, assetStatus);
     showInitialSpeechPhrase(state.config);
     return loadConfiguredModel(state);
