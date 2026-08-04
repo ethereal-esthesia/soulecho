@@ -346,11 +346,7 @@ async function fetchAnimaVisage(pathname, options = {}, timeoutMs = ANIMAVISAGE_
   }
 }
 
-async function getAnimaVisageFolder() {
-  if (ANIMAVISAGE_FOLDER) {
-    return ANIMAVISAGE_FOLDER;
-  }
-
+async function getAnimaVisageBootstrap() {
   const response = await fetchAnimaVisage("/api/bootstrap", {
     headers: {
       Accept: "application/json"
@@ -360,7 +356,71 @@ async function getAnimaVisageFolder() {
   if (!response.ok || !payload.active_folder_id) {
     throw new Error(payload.error || "AnimaVisage did not provide an active folder");
   }
-  return String(payload.active_folder_id);
+  return payload;
+}
+
+function animaVisageFaceModels(bootstrap) {
+  const folders = Array.isArray(bootstrap?.render_folders)
+    ? bootstrap.render_folders
+    : [];
+  return folders
+    .map((folder) => {
+      const id = String(folder?.id || "").trim();
+      const transitionStatus = folder?.transition_status || (
+        id === bootstrap?.active_folder_id ? bootstrap?.transition_status : null
+      );
+      return {
+        id,
+        label: String(folder?.label || folder?.id || "").trim(),
+        available: transitionStatus ? transitionStatus.status === "complete" : true,
+        status: String(transitionStatus?.status || "unknown"),
+        message: String(transitionStatus?.message || "")
+      };
+    })
+    .filter((folder) => folder.id && folder.label);
+}
+
+async function getAnimaVisageFaceModelOptions() {
+  const bootstrap = await getAnimaVisageBootstrap();
+  const models = animaVisageFaceModels(bootstrap);
+  const configured = ANIMAVISAGE_FOLDER && models.some(
+    (model) => model.id === ANIMAVISAGE_FOLDER && model.available
+  )
+    ? ANIMAVISAGE_FOLDER
+    : "";
+  const active = models.some(
+    (model) => model.id === bootstrap.active_folder_id && model.available
+  )
+    ? String(bootstrap.active_folder_id)
+    : "";
+  return {
+    selected: configured || active || models.find((model) => model.available)?.id || "",
+    models
+  };
+}
+
+async function getAnimaVisageFolder(requestedFolder = "") {
+  const requested = String(requestedFolder || "").trim();
+  if (!requested) {
+    const options = await getAnimaVisageFaceModelOptions();
+    if (options.selected) {
+      return options.selected;
+    }
+    throw new Error("AnimaVisage does not have a voice-ready face model");
+  }
+
+  const bootstrap = await getAnimaVisageBootstrap();
+  const models = animaVisageFaceModels(bootstrap);
+  const model = models.find((candidate) => candidate.id === requested);
+  if (!model) {
+    throw new Error(`Unknown AnimaVisage face model: ${requested}`);
+  }
+  if (!model.available) {
+    throw new Error(
+      `${model.label} is not voice-ready. ${model.message || "Render its transition library first."}`
+    );
+  }
+  return requested;
 }
 
 function localCompanionVoiceSegment(segment, index, count) {
@@ -381,8 +441,68 @@ function localCompanionVoiceSegment(segment, index, count) {
   };
 }
 
-async function requestCompanionVoice(text) {
-  const folderId = await getAnimaVisageFolder();
+function companionPortraitUrl(folderId = "") {
+  const folder = String(folderId || "").trim();
+  return folder
+    ? `companion-voice/portrait?folder=${encodeURIComponent(folder)}`
+    : "companion-voice/portrait";
+}
+
+function normalizeTransitionFramePath(value) {
+  const relative = String(value || "").replaceAll("\\", "/");
+  if (
+    !relative.startsWith("frames/") ||
+    relative.startsWith("/") ||
+    relative.split("/").includes("..") ||
+    path.posix.normalize(relative) !== relative
+  ) {
+    throw new Error("AnimaVisage returned an invalid transition frame path");
+  }
+  return relative;
+}
+
+function companionIdleFrameUrl(folderId, framePath) {
+  const query = new URLSearchParams({
+    folder: folderId,
+    frame: normalizeTransitionFramePath(framePath)
+  });
+  return `companion-voice/idle-animation/frame?${query}`;
+}
+
+async function getCompanionIdleAnimation(requestedFolder = "") {
+  const folderId = await getAnimaVisageFolder(requestedFolder);
+  const manifestPath = (
+    `/assets/folders/${encodeURIComponent(folderId)}` +
+    "/renders/transitions/manifest.json"
+  );
+  const response = await fetchAnimaVisage(manifestPath, {
+    headers: { Accept: "application/json" }
+  });
+  const manifest = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    throw new Error(manifest.error || `AnimaVisage returned ${response.status}`);
+  }
+  const blink = Array.isArray(manifest.transitions)
+    ? manifest.transitions.find((transition) => (
+      transition?.action_id === "blink" &&
+      Array.isArray(transition.frames) &&
+      transition.frames.length > 1
+    ))
+    : null;
+  if (!blink) {
+    return { available: false, folder_id: folderId, id: "blink", frames: [] };
+  }
+  return {
+    available: true,
+    folder_id: folderId,
+    id: "blink",
+    neutral_frame: 0,
+    frames: blink.frames.map((frame) => companionIdleFrameUrl(folderId, frame))
+  };
+}
+
+async function requestCompanionVoice(text, requestedFolder = "") {
+  const folderId = await getAnimaVisageFolder(requestedFolder);
   const response = await fetchAnimaVisage("/api/voice/test", {
     method: "POST",
     headers: {
@@ -407,7 +527,7 @@ async function requestCompanionVoice(text) {
   return {
     available: true,
     folder_id: folderId,
-    poster_url: "companion-voice/portrait",
+    poster_url: companionPortraitUrl(folderId),
     sentence_gap_ms: Number(payload.sentence_gap_ms || 0),
     startup_buffer_seconds: Number(payload.startup_buffer_seconds || 0),
     segments: sourceSegments.map((segment, index) => (
@@ -425,10 +545,33 @@ function getCompanionVoiceUpstreamPath(pathname) {
 }
 
 async function proxyAnimaVisageResponse(request, response, pathname) {
+  if (pathname === "/models") {
+    sendJson(response, 200, await getAnimaVisageFaceModelOptions());
+    return;
+  }
+
+  const requestUrl = new URL(request.url || "/", "http://localhost");
+  if (pathname === "/idle-animation") {
+    sendJson(
+      response,
+      200,
+      await getCompanionIdleAnimation(requestUrl.searchParams.get("folder"))
+    );
+    return;
+  }
+
   let upstreamPath = getCompanionVoiceUpstreamPath(pathname);
   if (pathname === "/portrait") {
-    const folderId = await getAnimaVisageFolder();
+    const folderId = await getAnimaVisageFolder(requestUrl.searchParams.get("folder"));
     upstreamPath = `/assets/folders/${encodeURIComponent(folderId)}/source`;
+  }
+  if (pathname === "/idle-animation/frame") {
+    const folderId = await getAnimaVisageFolder(requestUrl.searchParams.get("folder"));
+    const framePath = normalizeTransitionFramePath(requestUrl.searchParams.get("frame"));
+    upstreamPath = (
+      `/assets/folders/${encodeURIComponent(folderId)}/renders/transitions/` +
+      framePath.split("/").map(encodeURIComponent).join("/")
+    );
   }
   if (!upstreamPath) {
     sendJson(response, 404, { error: "Unknown companion voice resource" });
@@ -557,12 +700,12 @@ async function handleOllamaChat(request, response) {
     let voice = null;
     if (body.voice === true && message.trim()) {
       try {
-        voice = await requestCompanionVoice(message.trim());
+        voice = await requestCompanionVoice(message.trim(), body.face_model);
       } catch (error) {
         voice = {
           available: false,
           error: getServiceErrorMessage(error, "AnimaVisage"),
-          poster_url: "companion-voice/portrait",
+          poster_url: companionPortraitUrl(body.face_model),
           segments: []
         };
       }

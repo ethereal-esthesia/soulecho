@@ -33,13 +33,6 @@
       <div class="dialogue-stack">
         <p class="dialogue-privacy">Demo chats with the server are stored in your browser.</p>
         <div class="dialogue-row">
-          <aside class="companion-face" id="companionFace" data-state="idle" aria-label="Speaking companion">
-            <video id="companionFaceVideo" playsinline preload="none" aria-label="Animated companion response"></video>
-            <button class="companion-face-play" id="companionFacePlay" type="button" aria-label="Play companion voice" hidden>
-              <span aria-hidden="true"></span>
-            </button>
-            <small id="companionFaceStatus" aria-live="polite">Voice ready</small>
-          </aside>
           <section class="dialogue-console" aria-label="Companion dialogue">
             <div class="dialogue-history" id="dialogueHistory" aria-live="polite"></div>
             <form class="dialogue-form" id="dialogueForm">
@@ -50,6 +43,16 @@
               <button class="dialogue-send-button" type="submit">Send</button>
             </form>
           </section>
+          <aside class="companion-face" id="companionFace" data-state="idle" aria-label="Speaking companion">
+            <div class="companion-face-media">
+              <img id="companionFaceIdle" alt="" aria-hidden="true" />
+              <video id="companionFaceVideo" playsinline preload="none" aria-label="Animated companion response"></video>
+              <button class="companion-face-play" id="companionFacePlay" type="button" aria-label="Play companion voice" hidden>
+                <span aria-hidden="true"></span>
+              </button>
+            </div>
+            <small id="companionFaceStatus" aria-live="polite">Voice ready</small>
+          </aside>
         </div>
       </div>
       <dialog class="memory-dialog" id="memoryDialog" aria-labelledby="memoryDialogTitle">
@@ -100,6 +103,13 @@
               <span class="parameter-label">Model</span>
               <select id="modelPresetSelect" aria-label="Model preset">
                 <option value="">Configured model</option>
+              </select>
+            </label>
+            <label class="parameter-select" title="Companion face model">
+              <span class="model-select-icon face-model-select-icon" aria-hidden="true"></span>
+              <span class="parameter-label">Face model</span>
+              <select id="faceModelSelect" aria-label="Companion face model" disabled>
+                <option value="">Loading face models…</option>
               </select>
             </label>
             <button class="save-demo-profile" id="saveDemoProfileButton" type="button">Save demo profile</button>

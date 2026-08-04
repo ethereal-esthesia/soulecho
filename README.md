@@ -133,7 +133,11 @@ npm run configure
 http://127.0.0.1:5173/?mode=admin&config=default
 ```
 
-Click `Save demo profile` after choosing the model preset and preview settings. The save dialog asks for the profile name. You can also pass an optional name after `--` to prefill that dialog:
+Click `Save demo profile` after choosing the stage model, companion face model,
+and preview settings. The selected AnimaVisage face model is stored in the
+compiled demo metadata with the other profile choices. The save dialog asks
+for the profile name. You can also pass an optional name after `--` to prefill
+that dialog:
 
 ```bash
 npm run configure -- sameko
@@ -199,17 +203,22 @@ ollama pull llama3.2:3b
 Start Ollama, run the app, and use the dialogue console at the top of the scene.
 
 SoulEcho also asks a local AnimaVisage server to animate and speak each normal
-companion reply. The text response appears immediately, while the small face
-beside the console plays the same buffered fragmented-MP4 stream used by the
-AnimaVisage Studio voice demo. Start AnimaVisage on its default local endpoint:
+companion reply. The small face beside the console plays the same buffered
+fragmented-MP4 stream used by the AnimaVisage Studio voice demo, and the reply
+text appears when voice playback begins. While idle, the face uses frame 0 of
+the folder's rendered `blink` action as its neutral still and follows the main
+avatar's blink timing. Idle blinks and spoken animation are mutually exclusive:
+an active blink returns to frame 0 before speech begins. Start AnimaVisage on
+its default local endpoint:
 
 ```bash
 cd ../AnimaVisage
 python3 scripts/expression_studio.py --folder astera-happy --no-open
 ```
 
-SoulEcho uses the folder currently selected in AnimaVisage Studio by default.
-Pin a folder or use a different endpoint with:
+SoulEcho lists the available AnimaVisage folders in the `Face model` selector
+and uses the folder currently selected in AnimaVisage Studio by default. Pin
+the initial selection or use a different endpoint with:
 
 ```bash
 ANIMAVISAGE_URL=http://127.0.0.1:8766 \

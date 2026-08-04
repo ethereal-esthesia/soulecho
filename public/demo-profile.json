@@ -11,6 +11,8 @@
     "kind": "vrm",
     "required": true
   },
+  "faceModel": "astera-happy",
+  "faceModelLabel": "astera-happy",
   "modelPreview": {
     "mode": "textured",
     "lighting": "native",

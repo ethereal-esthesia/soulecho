@@ -19,6 +19,7 @@ const togglePlay = document.querySelector("#togglePlay");
 const cameraModeButton = document.querySelector("#cameraMode");
 const previewControls = document.querySelector("#previewControls");
 const modelPresetSelect = document.querySelector("#modelPresetSelect");
+const faceModelSelect = document.querySelector("#faceModelSelect");
 const eyeMorphSelect = document.querySelector("#eyeMorphSelect");
 const faceEmoteSelect = document.querySelector("#faceEmoteSelect");
 const outfitMorphSelect = document.querySelector("#outfitMorphSelect");
@@ -32,6 +33,7 @@ const dialogueForm = document.querySelector("#dialogueForm");
 const dialogueInput = document.querySelector("#dialogueInput");
 const dialogueSendButton = document.querySelector(".dialogue-send-button");
 const companionFace = document.querySelector("#companionFace");
+const companionFaceIdle = document.querySelector("#companionFaceIdle");
 const companionFaceVideo = document.querySelector("#companionFaceVideo");
 const companionFacePlay = document.querySelector("#companionFacePlay");
 const companionFaceStatus = document.querySelector("#companionFaceStatus");
@@ -96,7 +98,7 @@ const DEFAULT_APP_SETTINGS = {
   profileMetadataExtraction: import.meta.env.VITE_PROFILE_METADATA_EXTRACTION !== "0",
   maxConsoleMemoryLines: Number(import.meta.env.VITE_MAX_CONSOLE_MEMORY_LINES || 40)
 };
-const OLLAMA_THINKING_MESSAGE = `${OLLAMA_MODEL} thinking`;
+const OLLAMA_THINKING_MESSAGE = "Just a moment — I'm thinking…";
 const COMPANION_FALLBACK_NAME = "Companion";
 const COMPANION_SYSTEM_PROMPT =
   "You are the currently visible character. Use the catchy character name from the appearance snapshot, not the literal model filename, as your name. Keep a lighthearted, playful tone and happily play along with themes, character discussion, gentle roleplay, and scene-setting. Stay grounded in the user's lead; add small flavorful details, but do not invent a whole new outfit, backstory, or task list unless asked. Reply in one or two short natural sentences. Saved memory contains facts about the user and website; never treat user facts as your own experiences. Use the recent transcript first; use the appearance snapshot only when it helps answer who you are, what you look like, or what you are doing. Do not recite model metadata unless the user asks. Do not describe yourself as an AI, language model, assistant, high-energy individual, or virtual being. Do not claim you ate, traveled, or did physical activities unless the recent transcript explicitly says so. Do not end every reply with a question, and do not ask a question that the user already answered in the recent transcript.";
@@ -288,6 +290,7 @@ const PREVIEW_QUERY_KEYS = {
   cameraZoom: "cameraZoom",
   readingWpm: "readingWpm",
   modelPreset: "modelPreset",
+  faceModel: "faceModel",
   motion: "modelMotion"
 };
 const DEPRECATED_PREVIEW_QUERY_KEYS = ["modelMaterialPreset", "materialBoost"];
@@ -504,7 +507,21 @@ const companionVoiceController = {
   requestId: 0,
   abortController: null,
   objectUrl: "",
-  resetTimer: 0
+  resetTimer: 0,
+  revealText: null
+};
+const companionBlinkController = {
+  folderId: "",
+  frames: [],
+  active: false,
+  awaitNeutral: false,
+  waiters: [],
+  loadRequestId: 0
+};
+const faceModelController = {
+  options: [],
+  selectedId: "",
+  configuredId: ""
 };
 const demoScheduler = {
   timers: [],
@@ -1994,27 +2011,34 @@ function handleMemoryCommand(prompt) {
 
 function renderDialogueHistory() {
   dialogueHistory.innerHTML = "";
-  dialogueController.messages.forEach((message) => {
-    const line = document.createElement("div");
-    line.className = "dialogue-line";
-    line.dataset.speaker = message.role;
-    const prefix = {
-      user: ">",
-      assistant: "<",
-      system: "#"
-    }[message.role] || "#";
-    line.textContent = `${prefix} ${message.content}`;
-    dialogueHistory.append(line);
-  });
+  dialogueController.messages
+    .filter((message) => !message.hiddenUntilVoice)
+    .forEach((message) => {
+      const line = document.createElement("div");
+      line.className = "dialogue-line";
+      line.dataset.speaker = message.role;
+      const prefix = {
+        user: ">",
+        assistant: "<",
+        system: "#"
+      }[message.role] || "#";
+      line.textContent = `${prefix} ${message.content}`;
+      dialogueHistory.append(line);
+    });
   dialogueHistory.scrollTop = dialogueHistory.scrollHeight;
 }
 
-function addDialogueLine(role, content) {
-  dialogueController.messages.push({ role, content });
+function addDialogueLine(role, content, options = {}) {
+  const message = { role, content };
+  if (options.hiddenUntilVoice) {
+    message.hiddenUntilVoice = true;
+  }
+  dialogueController.messages.push(message);
   if (role === "user" || role === "assistant") {
     saveCompanionContext();
   }
   renderDialogueHistory();
+  return message;
 }
 
 function addOllamaThinkingNotice() {
@@ -2045,11 +2069,24 @@ function addAssistantDialogueReply(reply, options = {}) {
   }
   if (options.dedupeRecent && getLastDialogueLine("assistant")?.content === cleanReply) {
     showSpeechPhrase(cleanReply);
-    return false;
+    return null;
   }
-  addDialogueLine("assistant", cleanReply);
-  showSpeechPhrase(cleanReply);
-  return true;
+  const message = addDialogueLine("assistant", cleanReply, {
+    hiddenUntilVoice: options.hiddenUntilVoice
+  });
+  if (!message.hiddenUntilVoice) {
+    showSpeechPhrase(cleanReply);
+  }
+  return message;
+}
+
+function revealAssistantDialogueReply(message) {
+  if (!message?.hiddenUntilVoice) {
+    return;
+  }
+  delete message.hiddenUntilVoice;
+  renderDialogueHistory();
+  showSpeechPhrase(message.content);
 }
 
 function shouldSkipContinuationGreeting() {
@@ -2132,8 +2169,12 @@ async function runSchedulerCommand(command) {
     try {
       addOllamaThinkingNotice();
       const response = await requestContinuationGreeting();
-      addAssistantDialogueReply(response.message);
-      playCompanionVoice(response.voice);
+      const replyMessage = addAssistantDialogueReply(response.message, {
+        hiddenUntilVoice: true
+      });
+      playCompanionVoice(response.voice, {
+        onPlaybackStart: () => revealAssistantDialogueReply(replyMessage)
+      });
     } catch (error) {
       console.warn("Continuation greeting failed", error);
       addAssistantDialogueReply(getContinuationGreeting());
@@ -2220,6 +2261,9 @@ function setCompanionFaceState(state, status, detail = "") {
   companionFace.dataset.state = state;
   companionFaceStatus.textContent = status;
   companionFace.title = detail || status;
+  if (state === "idle" && companionBlinkController.frames.length > 0) {
+    companionFaceIdle.src = companionBlinkController.frames[0];
+  }
 }
 
 function releaseCompanionFaceMedia() {
@@ -2232,7 +2276,14 @@ function releaseCompanionFaceMedia() {
   }
 }
 
+function revealPendingCompanionText() {
+  const revealText = companionVoiceController.revealText;
+  companionVoiceController.revealText = null;
+  revealText?.();
+}
+
 function cancelCompanionVoice() {
+  revealPendingCompanionText();
   companionVoiceController.requestId += 1;
   companionVoiceController.abortController?.abort();
   companionVoiceController.abortController = null;
@@ -2242,8 +2293,214 @@ function cancelCompanionVoice() {
   releaseCompanionFaceMedia();
 }
 
+function companionPortraitPath(faceModelId = faceModelController.selectedId) {
+  const folder = String(faceModelId || "").trim();
+  return folder
+    ? `companion-voice/portrait?folder=${encodeURIComponent(folder)}`
+    : "companion-voice/portrait";
+}
+
+function finishCompanionBlink() {
+  companionBlinkController.active = false;
+  if (companionBlinkController.frames.length > 0) {
+    companionFaceIdle.src = companionBlinkController.frames[0];
+  }
+  const waiters = companionBlinkController.waiters.splice(0);
+  waiters.forEach((resolve) => resolve());
+}
+
+function waitForCompanionBlinkCompletion() {
+  if (!companionBlinkController.active) {
+    return Promise.resolve();
+  }
+  return new Promise((resolve) => {
+    companionBlinkController.waiters.push(resolve);
+  });
+}
+
+function updateCompanionFaceBlink(weight) {
+  const frames = companionBlinkController.frames;
+  if (frames.length < 2) return;
+  const neutral = weight <= 0.001;
+  if (companionFace.dataset.state !== "idle") {
+    if (!neutral) {
+      companionBlinkController.awaitNeutral = true;
+    }
+    return;
+  }
+  if (companionBlinkController.awaitNeutral) {
+    companionFaceIdle.src = frames[0];
+    if (neutral) {
+      companionBlinkController.awaitNeutral = false;
+    }
+    return;
+  }
+  if (neutral) {
+    if (companionBlinkController.active) {
+      finishCompanionBlink();
+    } else {
+      companionFaceIdle.src = frames[0];
+    }
+    return;
+  }
+  companionBlinkController.active = true;
+  const frameIndex = Math.min(
+    frames.length - 1,
+    Math.round(THREE.MathUtils.clamp(weight, 0, 1) * (frames.length - 1))
+  );
+  companionFaceIdle.src = frames[frameIndex];
+}
+
+async function loadCompanionBlinkAnimation(folderId) {
+  const requestId = companionBlinkController.loadRequestId + 1;
+  companionBlinkController.loadRequestId = requestId;
+  companionBlinkController.folderId = folderId;
+  companionBlinkController.frames = [];
+  companionBlinkController.awaitNeutral = false;
+  finishCompanionBlink();
+  companionFaceIdle.src = appUrl(companionPortraitPath(folderId));
+  try {
+    const response = await fetch(
+      appUrl(`companion-voice/idle-animation?folder=${encodeURIComponent(folderId)}`),
+      { cache: "no-store" }
+    );
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok || payload.available !== true || !Array.isArray(payload.frames)) {
+      return;
+    }
+    const frames = payload.frames.map((frame) => appUrl(frame));
+    await Promise.all(frames.map((source) => new Promise((resolve) => {
+      const image = new Image();
+      image.addEventListener("load", resolve, { once: true });
+      image.addEventListener("error", resolve, { once: true });
+      image.src = source;
+    })));
+    if (
+      requestId !== companionBlinkController.loadRequestId ||
+      folderId !== companionBlinkController.folderId
+    ) {
+      return;
+    }
+    companionBlinkController.frames = frames;
+    companionFaceIdle.src = frames[0];
+  } catch (error) {
+    console.warn("Companion blink animation unavailable", error);
+  }
+}
+
+function setFaceModel(id, syncUrl = true) {
+  const selected = faceModelController.options.find((option) => option.id === id);
+  if (!selected || selected.available === false) {
+    return false;
+  }
+  if (syncUrl && selected.id !== faceModelController.selectedId) {
+    cancelCompanionVoice();
+  }
+  faceModelController.selectedId = selected.id;
+  faceModelSelect.value = selected.id;
+  faceModelSelect.title = `${selected.label}: AnimaVisage face model`;
+  document.documentElement.dataset.faceModel = selected.id;
+  companionFaceIdle.src = appUrl(companionPortraitPath(selected.id));
+  companionFaceVideo.poster = appUrl(companionPortraitPath(selected.id));
+  companionFaceVideo.load();
+  void loadCompanionBlinkAnimation(selected.id);
+  if (syncUrl) {
+    setPreviewUrlParam("faceModel", selected.id);
+  }
+  return true;
+}
+
+function populateFaceModelSelect(payload = {}, configuredId = "") {
+  const options = Array.isArray(payload.models) ? payload.models : [];
+  faceModelController.options = options.filter((option) => option?.id && option?.label);
+  const availableOptions = faceModelController.options.filter(
+    (option) => option.available !== false
+  );
+  faceModelSelect.innerHTML = "";
+
+  if (availableOptions.length === 0) {
+    const option = document.createElement("option");
+    option.value = "";
+    option.textContent = "No voice-ready face models";
+    option.selected = true;
+    faceModelSelect.append(option);
+    faceModelController.options.forEach((faceModel) => {
+      const unavailable = document.createElement("option");
+      unavailable.value = faceModel.id;
+      unavailable.textContent = `${faceModel.label} — ${faceModel.message || "voice unavailable"}`;
+      unavailable.disabled = true;
+      faceModelSelect.append(unavailable);
+    });
+    faceModelSelect.disabled = true;
+    faceModelSelect.title = "Render an AnimaVisage transition library to enable voice";
+    return;
+  }
+
+  faceModelController.options.forEach((faceModel) => {
+    const option = document.createElement("option");
+    option.value = faceModel.id;
+    option.textContent = faceModel.available === false
+      ? `${faceModel.label} — ${faceModel.message || "voice unavailable"}`
+      : faceModel.label;
+    option.disabled = faceModel.available === false;
+    option.title = faceModel.message || "Voice ready";
+    faceModelSelect.append(option);
+  });
+
+  const savedFaceModel = loadSavedDemoProfile()?.faceModel || "";
+  const requestedFromUrl = queryParams.get(PREVIEW_QUERY_KEYS.faceModel) || "";
+  const requested = requestedFromUrl ||
+    savedFaceModel ||
+    configuredId ||
+    faceModelController.configuredId ||
+    payload.selected ||
+    availableOptions[0].id;
+  const selected = availableOptions.some((option) => option.id === requested)
+    ? requested
+    : availableOptions[0].id;
+  const unavailableRequested = faceModelController.options.find(
+    (option) => option.id === requested && option.available === false
+  );
+  faceModelSelect.disabled = faceModelController.options.length <= 1;
+  setFaceModel(selected, Boolean(requestedFromUrl && requestedFromUrl !== selected));
+  if (unavailableRequested) {
+    faceModelSelect.title = (
+      `${unavailableRequested.label} is unavailable: ` +
+      `${unavailableRequested.message || "render its transition library first"}. ` +
+      `Using ${availableOptions.find((option) => option.id === selected)?.label || selected}.`
+    );
+  }
+}
+
+async function loadFaceModelOptions(configuredId = "") {
+  try {
+    const response = await fetch(appUrl("companion-voice/models"), { cache: "no-store" });
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      throw new Error(payload.error || `Face models returned ${response.status}`);
+    }
+    populateFaceModelSelect(payload, configuredId);
+  } catch (error) {
+    populateFaceModelSelect();
+    faceModelSelect.title = error instanceof Error ? error.message : "Face models unavailable";
+  }
+}
+
+function applyConfiguredFaceModel(configuredId = "") {
+  faceModelController.configuredId = configuredId;
+  if (
+    !configuredId ||
+    queryParams.has(PREVIEW_QUERY_KEYS.faceModel) ||
+    loadSavedDemoProfile()?.faceModel
+  ) {
+    return;
+  }
+  setFaceModel(configuredId, false);
+}
+
 function initializeCompanionFace() {
-  companionFaceVideo.poster = appUrl("companion-voice/portrait");
+  companionFaceIdle.src = appUrl(companionPortraitPath());
+  companionFaceVideo.poster = appUrl(companionPortraitPath());
   companionFaceVideo.load();
   setCompanionFaceState("idle", "Voice ready");
 }
@@ -2299,29 +2556,69 @@ function appendCompanionMediaChunk(sourceBuffer, chunk, signal) {
   });
 }
 
-function waitForCompanionVideoEnd(signal) {
-  return new Promise((resolve, reject) => {
-    const handleEnd = () => {
-      cleanup();
-      resolve();
-    };
-    const handleError = () => {
-      cleanup();
-      reject(new Error("Could not play the companion voice stream"));
-    };
-    const handleAbort = () => {
-      cleanup();
-      reject(companionVoiceCancelledError());
-    };
-    const cleanup = () => {
-      companionFaceVideo.removeEventListener("ended", handleEnd);
-      companionFaceVideo.removeEventListener("error", handleError);
-      signal.removeEventListener("abort", handleAbort);
-    };
-    companionFaceVideo.addEventListener("ended", handleEnd, { once: true });
-    companionFaceVideo.addEventListener("error", handleError, { once: true });
-    signal.addEventListener("abort", handleAbort, { once: true });
+function createCompanionVideoEndWaiter(signal) {
+  let terminalTime = null;
+  let settled = false;
+  let resolvePromise;
+  let rejectPromise;
+  const promise = new Promise((resolve, reject) => {
+    resolvePromise = resolve;
+    rejectPromise = reject;
   });
+  const finish = () => {
+    if (settled) return;
+    settled = true;
+    cleanup();
+    resolvePromise();
+  };
+  const checkTerminalTime = () => {
+    if (
+      companionFaceVideo.ended ||
+      (
+        Number.isFinite(terminalTime) &&
+        terminalTime > 0 &&
+        companionFaceVideo.currentTime >= terminalTime - 0.05
+      )
+    ) {
+      finish();
+    }
+  };
+  const handleEnd = () => finish();
+  const handlePause = () => checkTerminalTime();
+  const handleTimeUpdate = () => checkTerminalTime();
+  const handleError = () => {
+    if (settled) return;
+    settled = true;
+    cleanup();
+    rejectPromise(new Error("Could not play the companion voice stream"));
+  };
+  const handleAbort = () => {
+    if (settled) return;
+    settled = true;
+    cleanup();
+    rejectPromise(companionVoiceCancelledError());
+  };
+  const cleanup = () => {
+    companionFaceVideo.removeEventListener("ended", handleEnd);
+    companionFaceVideo.removeEventListener("pause", handlePause);
+    companionFaceVideo.removeEventListener("timeupdate", handleTimeUpdate);
+    companionFaceVideo.removeEventListener("error", handleError);
+    signal.removeEventListener("abort", handleAbort);
+  };
+
+  companionFaceVideo.addEventListener("ended", handleEnd, { once: true });
+  companionFaceVideo.addEventListener("pause", handlePause);
+  companionFaceVideo.addEventListener("timeupdate", handleTimeUpdate);
+  companionFaceVideo.addEventListener("error", handleError, { once: true });
+  signal.addEventListener("abort", handleAbort, { once: true });
+
+  return {
+    promise,
+    setTerminalTime(value) {
+      terminalTime = Number(value);
+      checkTerminalTime();
+    }
+  };
 }
 
 async function monitorCompanionVoiceSegment(segment, signal) {
@@ -2348,6 +2645,7 @@ async function monitorCompanionVoiceSegment(segment, signal) {
 function startCompanionFacePlayback(index, count) {
   companionFaceVideo.play()
     .then(() => {
+      revealPendingCompanionText();
       companionFacePlay.hidden = true;
       setCompanionFaceState(
         "playing",
@@ -2388,7 +2686,7 @@ async function playCompanionVoiceSegment(
     throw new Error(payload.error || `Voice stream returned ${response.status}`);
   }
 
-  const ended = waitForCompanionVideoEnd(signal);
+  const endWaiter = createCompanionVideoEndWaiter(signal);
   const reader = response.body.getReader();
   let playbackStarted = false;
   while (true) {
@@ -2410,24 +2708,30 @@ async function playCompanionVoiceSegment(
   if (mediaSource.readyState === "open") {
     mediaSource.endOfStream();
   }
+  const terminalTime = companionFaceVideo.buffered.length > 0
+    ? companionFaceVideo.buffered.end(companionFaceVideo.buffered.length - 1)
+    : companionFaceVideo.duration;
+  endWaiter.setTerminalTime(terminalTime);
   if (!playbackStarted) {
     companionFaceVideo.currentTime = 0;
     startCompanionFacePlayback(index, count);
   }
-  await ended;
+  await endWaiter.promise;
   URL.revokeObjectURL(objectUrl);
   if (companionVoiceController.objectUrl === objectUrl) {
     companionVoiceController.objectUrl = "";
   }
 }
 
-async function playCompanionVoice(voice) {
+async function playCompanionVoice(voice, options = {}) {
   cancelCompanionVoice();
   const requestId = companionVoiceController.requestId;
+  companionVoiceController.revealText = options.onPlaybackStart || null;
   if (voice?.poster_url) {
     companionFaceVideo.poster = appUrl(voice.poster_url);
   }
   if (!voice?.available || !Array.isArray(voice.segments) || voice.segments.length === 0) {
+    revealPendingCompanionText();
     const detail = voice?.error || "No companion voice stream was returned";
     setCompanionFaceState("error", "Voice offline", detail);
     console.warn("Companion voice unavailable", detail);
@@ -2436,6 +2740,10 @@ async function playCompanionVoice(voice) {
 
   const controller = new AbortController();
   companionVoiceController.abortController = controller;
+  await waitForCompanionBlinkCompletion();
+  if (requestId !== companionVoiceController.requestId) {
+    return;
+  }
   setCompanionFaceState("buffering", "Preparing voice");
 
   try {
@@ -2484,6 +2792,7 @@ async function playCompanionVoice(voice) {
     companionVoiceController.abortController = null;
     companionFacePlay.hidden = true;
     releaseCompanionFaceMedia();
+    revealPendingCompanionText();
     const detail = error instanceof Error ? error.message : "Companion voice failed";
     setCompanionFaceState("error", "Voice error", detail);
     console.warn("Companion voice playback failed", error);
@@ -2508,6 +2817,7 @@ async function requestOllamaResponse(prompt, options = {}) {
         body: JSON.stringify({
           model: OLLAMA_MODEL,
           voice: options.voice === true,
+          face_model: faceModelController.selectedId,
           messages: options.appendPrompt
             ? [
                 ...getOllamaMessages(prompt, options),
@@ -2575,8 +2885,12 @@ async function submitDialoguePrompt(prompt) {
       addDialogueLine("system", `${OLLAMA_MODEL} returned an empty reply. Try again.`);
       return;
     }
-    addAssistantDialogueReply(reply);
-    playCompanionVoice(response.voice);
+    const replyMessage = addAssistantDialogueReply(reply, {
+      hiddenUntilVoice: true
+    });
+    playCompanionVoice(response.voice, {
+      onPlaybackStart: () => revealAssistantDialogueReply(replyMessage)
+    });
   } catch (error) {
     removeOllamaThinkingNotice();
     addDialogueLine(
@@ -4829,6 +5143,9 @@ function getSavedDemoPreviewOptions() {
 async function saveDemoProfile(configurationName = demoConfigurationName) {
   demoConfigurationName = normalizeDemoConfigurationName(configurationName);
   const selectedPreset = localAssetState?.selectedModelPreset || null;
+  const selectedFaceModel = faceModelController.options.find(
+    (option) => option.id === faceModelController.selectedId
+  );
   const selectedMotion = getMotionModeOption(modelPreviewOptions.motion);
   const requiredMotion = selectedMotion?.kind === "vrma"
     ? selectedMotion
@@ -4859,6 +5176,8 @@ async function saveDemoProfile(configurationName = demoConfigurationName) {
           required: true
         }
       : null,
+    faceModel: selectedFaceModel?.id || faceModelController.selectedId || "",
+    faceModelLabel: selectedFaceModel?.label || "Configured face model",
     modelPreview: { ...modelPreviewOptions },
     motionPresets
   };
@@ -4908,6 +5227,11 @@ function applySavedDemoProfileToUrlState() {
   const savedModelPreset = profile?.modelPreset;
   if (savedModelPreset && !queryParams.has(PREVIEW_QUERY_KEYS.modelPreset)) {
     queryParams.set(PREVIEW_QUERY_KEYS.modelPreset, savedModelPreset);
+    replaceUrlFromQueryParams();
+  }
+  const savedFaceModel = profile?.faceModel;
+  if (savedFaceModel && !queryParams.has(PREVIEW_QUERY_KEYS.faceModel)) {
+    queryParams.set(PREVIEW_QUERY_KEYS.faceModel, savedFaceModel);
     replaceUrlFromQueryParams();
   }
 }
@@ -5364,6 +5688,7 @@ function setBlinkWeight(weight) {
     target.object.morphTargetInfluences[target.index] = weight;
   });
   document.documentElement.dataset.blinkWeight = weight > 0.001 ? weight.toFixed(2) : "0";
+  updateCompanionFaceBlink(weight);
 }
 
 function scheduleNextBlink(delay = randomBlinkDelay()) {
@@ -6366,6 +6691,10 @@ modelPresetSelect.addEventListener("change", (event) => {
   setModelPreset(event.currentTarget.value);
 });
 
+faceModelSelect.addEventListener("change", (event) => {
+  setFaceModel(event.currentTarget.value);
+});
+
 saveDemoProfileButton.addEventListener("click", () => {
   openProfileSaveDialog();
 });
@@ -6425,6 +6754,7 @@ dialogueForm.addEventListener("submit", (event) => {
 companionFacePlay.addEventListener("click", () => {
   companionFaceVideo.play()
     .then(() => {
+      revealPendingCompanionText();
       companionFacePlay.hidden = true;
       setCompanionFaceState("playing", "Speaking");
     })
@@ -6496,6 +6826,7 @@ applySavedDemoProfileToUrlState();
 pruneDeprecatedPreviewUrlParams();
 populateSpeechPhraseSelect();
 initializeCompanionFace();
+loadFaceModelOptions();
 addDialogueLine("system", isDemoMode() ? "demo mode ready" : `${OLLAMA_MODEL} ready`);
 updatePreviewControls();
 
@@ -6565,6 +6896,7 @@ loadAssetConfig()
     }
     configureMotionOptions(state);
     populateModelPresetSelect(state);
+    applyConfiguredFaceModel(state.config?.faceModel);
     renderAssetStatus(state, assetStatus);
     showInitialSpeechPhrase(state.config);
     return loadConfiguredModel(state);
